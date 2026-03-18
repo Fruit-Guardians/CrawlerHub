@@ -1,87 +1,145 @@
 # GTFOBins 网站爬虫
 
-这个项目用于爬取 [GTFOBins](https://gtfobins.github.io/) 网站的所有词条信息。GTFOBins 是一个收集Unix二进制文件提权技术的知识库。
+这个项目用于抓取 [GTFOBins](https://gtfobins.org/) 的全部词条信息，并导出为 JSON 和 CSV。当前版本优先使用 GTFOBins 官方 `api.json`，当 API 不可用时会自动回退到 HTML 页面解析。
 
-## 功能特性
+## 这次优化了什么
 
-- 自动爬取GTFOBins网站的所有二进制文件词条
-- 提取每个二进制文件的详细信息，包括：
-  - 二进制文件名称
-  - 功能描述
-  - 提权方法和技术
-  - 代码示例
-  - 使用场景
-- 支持多种输出格式：JSON 和 CSV
-- 包含进度显示和错误处理
+- 默认走官方 API，全量抓取速度从逐页串行请求优化为单请求拉取
+- 自动回退 HTML 抓取，避免 API 短暂不可用时脚本直接失效
+- 增加请求重试、指数退避，以及 `curl` 传输回退，提升 TLS 不稳定场景下的成功率
+- HTML 回退模式支持并发抓取
+- 保留原有 `name / url / description / functions / examples` 核心输出字段，同时补充 `alias`、`alias_chain`、上下文、MITRE、额外说明等结构化信息
+- 新增 CLI 参数，支持选择数据源、并发数、超时、重试次数和输出路径
+- 新增离线测试，覆盖 alias 解析、上下文覆盖和 HTML 回退解析
 
 ## 文件说明
 
-- `gtfobins_scraper.py` - 主要的爬虫脚本
-- `requirements.txt` - Python依赖包列表
-- `gtfobins_data.json` - 爬取结果的JSON格式文件（运行后生成）
-- `gtfobins_data.csv` - 爬取结果的CSV格式文件（运行后生成）
+- `gtfobins_scraper.py`：主爬虫脚本
+- `test_gtfobins_scraper.py`：离线测试
+- `requirements.txt`：依赖列表
+- `gtfobins_data.json`：JSON 输出文件
+- `gtfobins_data.csv`：CSV 输出文件
 
 ## 安装依赖
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
+
+`lxml` 会优先用于 HTML 解析；如果当前环境没有安装，脚本会自动回退到 Python 内置的 `html.parser`。
 
 ## 使用方法
 
-运行爬虫脚本：
+默认运行：
 
 ```bash
-python gtfobins_scraper.py
+python3 gtfobins_scraper.py
 ```
 
-脚本会自动：
-1. 获取GTFOBins网站上所有二进制文件的列表
-2. 逐个爬取每个二进制文件的详细信息
-3. 将结果保存为JSON和CSV两种格式
+这会自动：
+
+1. 优先请求 `https://gtfobins.org/api.json`
+2. 失败时回退到 HTML 页面抓取
+3. 输出 `gtfobins_data.json` 和 `gtfobins_data.csv`
+4. 打印执行来源、词条数、功能数、示例数和请求统计
+
+只跑 API，不写文件：
+
+```bash
+python3 gtfobins_scraper.py --source api --skip-json --skip-csv
+```
+
+强制 HTML 回退模式：
+
+```bash
+python3 gtfobins_scraper.py --source html --workers 6
+```
+
+自定义输出文件：
+
+```bash
+python3 gtfobins_scraper.py --json-file data/gtfobins.json --csv-file data/gtfobins.csv
+```
+
+## CLI 参数
+
+- `--source {auto,api,html}`：抓取来源，默认 `auto`
+- `--json-file PATH`：JSON 输出路径
+- `--csv-file PATH`：CSV 输出路径
+- `--skip-json`：跳过 JSON 输出
+- `--skip-csv`：跳过 CSV 输出
+- `--timeout FLOAT`：单次请求超时秒数
+- `--retries INT`：请求重试次数
+- `--workers INT`：HTML 回退模式并发数
+- `--delay FLOAT`：每次请求前的延迟秒数
+- `--log-level {DEBUG,INFO,WARNING,ERROR}`：日志级别
 
 ## 输出格式
 
-### JSON格式
-每个二进制文件的信息包含以下字段：
+### JSON
+
+每个 binary 至少包含以下字段：
+
 ```json
 {
-  "name": "二进制文件名",
-  "url": "词条页面URL",
-  "description": "功能描述",
+  "name": "bash",
+  "url": "https://gtfobins.org/gtfobins/bash/",
+  "description": "This executable can spawn an interactive system shell.",
   "functions": [
     {
-      "name": "功能名称",
-      "description": "功能描述",
-      "code_examples": ["代码示例1", "代码示例2"]
+      "name": "Shell",
+      "slug": "shell",
+      "description": "This executable can spawn an interactive system shell.",
+      "contexts": ["Unprivileged", "Sudo", "SUID"],
+      "code_examples": ["bash", "bash -p"],
+      "examples": [
+        {
+          "code": "bash",
+          "contexts": [
+            {
+              "name": "Unprivileged",
+              "slug": "unprivileged",
+              "description": "This function can be performed by any unprivileged user.",
+              "code": "bash"
+            }
+          ]
+        }
+      ]
     }
   ],
-  "examples": ["所有代码示例"]
+  "examples": ["bash", "bash -p"],
+  "alias": "mawk"
 }
 ```
 
-### CSV格式
-包含以下列：
-- Binary Name: 二进制文件名
-- URL: 词条页面URL
-- Description: 功能描述
-- Functions: 功能列表（分号分隔）
-- Examples: 代码示例（分号分隔，最多3个）
+说明：
 
-## 注意事项
+- `alias` / `alias_chain` 只会在别名词条中出现
+- `functions[].mitre` 和 `functions[].extra` 来自官方 API
+- `functions[].examples[].references` 会保存 `listener`、`receiver`、`sender`、`connector` 等附加代码块
 
-- 爬取过程可能需要较长时间（约390个词条）
-- 脚本包含1秒的请求间隔以避免对服务器造成过大压力
-- 如果网络连接不稳定，可能会有部分词条爬取失败
-- 建议在网络环境良好的情况下运行
+### CSV
 
-## 统计信息
+CSV 继续保持轻量格式，包含以下列：
 
-脚本运行完成后会显示：
-- 成功爬取的二进制文件数量
-- 总功能数量
-- 总示例数量
+- `Binary Name`
+- `URL`
+- `Description`
+- `Functions`
+- `Examples`
+
+## 性能说明
+
+- `--source auto` 或 `--source api` 时，通常只需要 1 次网络请求即可完成全量抓取
+- `--source html` 时会逐页解析，速度显著慢于 API，但在 API 不可用时更稳妥
+- 当前站点偶发 TLS EOF，脚本会先重试 `requests`，仍失败时自动回退 `curl --http1.1`
+
+## 运行测试
+
+```bash
+python3 -m unittest test_gtfobins_scraper.py
+```
 
 ## 免责声明
 
-本工具仅用于学习和研究目的。请遵守相关法律法规和网站的使用条款。
+本工具仅用于学习与研究，请遵守目标站点使用条款以及当地法律法规。
