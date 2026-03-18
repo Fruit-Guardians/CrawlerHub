@@ -1,1083 +1,1832 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FreeBuf网络安全文章爬虫
-支持全站分类文章抓取、图片下载、Markdown格式化输出
+FreeBuf 网络安全文章爬虫（重构版）
+
+核心能力：
+1. 分类抓取（可并发）
+2. 断点续爬（state.json）
+3. 增量去重（manifest）
+4. Markdown + 图片本地化
+5. 离线检索索引（index.sqlite / index.jsonl / index.csv / summary.json）
+6. 可选 ID 扫描模式（绕过前端分页限制）
 """
 
-import requests
-from bs4 import BeautifulSoup
-import time
-import random
-import json
-import os
-from urllib.parse import urljoin, urlparse
-import logging
-from datetime import datetime
-import re
+from __future__ import annotations
+
+import argparse
+import csv
 import hashlib
-from typing import Optional, Dict, List, Any
+import logging
+import random
+import re
+import sqlite3
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
+from urllib.parse import urljoin, urlparse, urlunparse
+
+import httpx
+import orjson
+import requests
+import urllib3
+from bs4 import BeautifulSoup, NavigableString, Tag
+from pydantic import BaseModel, Field, ConfigDict
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from requests.adapters import HTTPAdapter
+from selectolax.parser import HTMLParser as FastHTMLParser
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util import Retry
+
+try:
+    from curl_cffi import requests as curl_requests
+except Exception:
+    curl_requests = None
+
+
+DEFAULT_CATEGORIES: List[str] = [
+    "articles/container",
+    "articles/ai-security",
+    "articles/development",
+    "articles/endpoint",
+    "articles/database",
+    "articles/web",
+    "articles/network",
+    "articles/es",
+    "ics-articles",
+    "articles/mobile",
+    "articles/system",
+    "articles/others-articles",
+]
+
+CATEGORY_LABELS: Dict[str, str] = {
+    "articles/container": "容器安全",
+    "articles/ai-security": "AI安全",
+    "articles/development": "开发安全",
+    "articles/endpoint": "终端安全",
+    "articles/database": "数据安全",
+    "articles/web": "Web安全",
+    "articles/network": "网络安全",
+    "articles/es": "企业安全",
+    "ics-articles": "工控安全",
+    "articles/mobile": "移动安全",
+    "articles/system": "系统安全",
+    "articles/others-articles": "其他安全",
+}
+
+ARTICLE_URL_RE = re.compile(
+    r"https?://(?:www\.)?freebuf\.com/articles(?:/[\w-]+)?/(\d+)\.html",
+    re.IGNORECASE,
+)
+DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}:\d{2})?")
+INVALID_TITLE_RE = re.compile(r"^(404|405|403|502|503)$", re.IGNORECASE)
+FREEBUF_TITLE_SUFFIX_RE = re.compile(r"\s*-\s*FreeBuf网络安全行业门户\s*$")
+
+ORJSON_OPTS = (
+    orjson.OPT_INDENT_2
+    | orjson.OPT_NON_STR_KEYS
+    | orjson.OPT_SERIALIZE_NUMPY
+)
+
+
+def read_json(path: Path) -> Dict[str, Any]:
+    return orjson.loads(path.read_bytes())
+
+
+def write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.write_bytes(orjson.dumps(payload, option=ORJSON_OPTS))
+
+
+class CrawlConfig(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    base_url: str = "https://www.freebuf.com/"
+    output_dir: Path = Path("freebuf_data")
+    categories: List[str] = Field(default_factory=lambda: list(DEFAULT_CATEGORIES))
+
+    delay: float = 1.0
+    jitter: float = 0.5
+    timeout: int = 20
+    retries: int = 3
+    workers: int = 6
+
+    max_pages_per_category: int = 50
+    max_articles_total: Optional[int] = None
+
+    download_images: bool = True
+    resume: bool = True
+    force: bool = False
+    verify_ssl: bool = True
+
+    scan_by_id: bool = False
+    id_start: Optional[int] = None
+    id_end: Optional[int] = None
+    id_batch_size: int = 200
+
+
+class CrawlStats(BaseModel):
+    start_time: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
+    end_time: str = ""
+
+    discovered: int = 0
+    processed: int = 0
+    saved: int = 0
+    skipped: int = 0
+    failed: int = 0
+    images_downloaded: int = 0
+
+    categories_finished: int = 0
+    id_scan_requests: int = 0
+
+    def as_dict(self) -> Dict[str, Any]:
+        now = datetime.now()
+        start = datetime.fromisoformat(self.start_time)
+        elapsed = max((now - start).total_seconds(), 0.0)
+        payload = self.model_dump()
+        payload["elapsed_seconds"] = round(elapsed, 2)
+        payload["articles_per_minute"] = round(self.saved / max(elapsed / 60.0, 0.1), 2)
+        return payload
+
+
+class ArticleBrief(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    url: str
+    article_id: Optional[int] = None
+    title: str = ""
+    summary: str = ""
+    author: str = ""
+    publish_time: str = ""
+    category_slug: str = ""
+    category_name: str = ""
+    source: str = ""
+
+
+class HttpClient:
+    """线程内复用三层传输客户端。
+
+    顺序：
+    1. httpx (http2)
+    2. requests
+    3. curl_cffi (浏览器指纹/TLS 栈，作为最后兜底)
+    """
+
+    def __init__(self, config: CrawlConfig, logger: logging.Logger):
+        self.config = config
+        self.logger = logger
+        self._local = threading.local()
+        self._requests_local = threading.local()
+        self._curl_local = threading.local()
+        self._clients: List[httpx.Client] = []
+        self._request_sessions: List[requests.Session] = []
+        self._curl_sessions: List[Any] = []
+        self._client_lock = threading.Lock()
+        self._requests_lock = threading.Lock()
+        self._curl_lock = threading.Lock()
+        self._force_requests = threading.Event()
+        self._disable_curl = threading.Event()
+
+        self._headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
+        }
+        self._limits = httpx.Limits(max_connections=128, max_keepalive_connections=64)
+        self._timeout = httpx.Timeout(
+            connect=min(10.0, float(self.config.timeout)),
+            read=float(self.config.timeout),
+            write=float(self.config.timeout),
+            pool=min(10.0, float(self.config.timeout)),
+        )
+
+        if not self.config.verify_ssl:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    def _build_client(self) -> httpx.Client:
+        client = httpx.Client(
+            http2=True,
+            verify=self.config.verify_ssl,
+            follow_redirects=True,
+            headers=self._headers,
+            timeout=self._timeout,
+            limits=self._limits,
+        )
+        with self._client_lock:
+            self._clients.append(client)
+        return client
+
+    def _client(self) -> httpx.Client:
+        if not hasattr(self._local, "client"):
+            self._local.client = self._build_client()
+        return self._local.client
+
+    def _build_requests_session(self) -> requests.Session:
+        session = requests.Session()
+        retries = max(int(self.config.retries), 0)
+        retry_policy = Retry(
+            total=retries,
+            connect=retries,
+            read=retries,
+            status=retries,
+            backoff_factor=0.6,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"GET", "HEAD"}),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(
+            pool_connections=128,
+            pool_maxsize=128,
+            max_retries=retry_policy,
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers.update(self._headers)
+        with self._requests_lock:
+            self._request_sessions.append(session)
+        return session
+
+    def _requests_session(self) -> requests.Session:
+        if not hasattr(self._requests_local, "session"):
+            self._requests_local.session = self._build_requests_session()
+        return self._requests_local.session
+
+    def _build_curl_session(self):
+        if curl_requests is None:
+            return None
+        session = curl_requests.Session()
+        session.headers.update(self._headers)
+        with self._curl_lock:
+            self._curl_sessions.append(session)
+        return session
+
+    def _curl_session(self):
+        if curl_requests is None:
+            return None
+        if not hasattr(self._curl_local, "session"):
+            self._curl_local.session = self._build_curl_session()
+        return self._curl_local.session
+
+    def _request_with_retry(self, url: str) -> httpx.Response:
+        attempts = max(int(self.config.retries), 0) + 1
+        retryer = Retrying(
+            stop=stop_after_attempt(attempts),
+            wait=wait_exponential_jitter(initial=0.5, max=8.0),
+            retry=retry_if_exception_type(
+                (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError, httpx.WriteError)
+            ),
+            reraise=True,
+        )
+        for attempt in retryer:
+            with attempt:
+                response = self._client().get(url)
+                response.raise_for_status()
+                return response
+        raise RuntimeError("unreachable")
+
+    def _request_with_requests(self, url: str) -> Optional[requests.Response]:
+        try:
+            resp = self._requests_session().get(
+                url,
+                timeout=float(self.config.timeout),
+                verify=self.config.verify_ssl,
+                allow_redirects=True,
+            )
+        except requests.RequestException as exc:
+            self.logger.debug("requests 请求失败: %s, error=%s", url, exc)
+            return None
+
+        if resp.status_code in {403, 404, 405}:
+            return None
+        if resp.status_code >= 400:
+            self.logger.debug("requests HTTP 状态异常: %s (%s)", url, resp.status_code)
+            return None
+        return resp
+
+    def _request_with_curl(self, url: str) -> Optional[Any]:
+        if curl_requests is None or self._disable_curl.is_set():
+            return None
+
+        session = self._curl_session()
+        if session is None:
+            return None
+
+        last_exc: Optional[Exception] = None
+        for fp in ("chrome124", "chrome120", "safari17_0"):
+            try:
+                resp = session.get(
+                    url,
+                    timeout=float(self.config.timeout),
+                    verify=self.config.verify_ssl,
+                    allow_redirects=True,
+                    impersonate=fp,
+                )
+            except Exception as exc:
+                last_exc = exc
+                continue
+
+            status = int(getattr(resp, "status_code", 0) or 0)
+            if status in {404, 405}:
+                return None
+            if status in {403}:
+                continue
+            if status >= 400:
+                continue
+            return resp
+
+        if last_exc:
+            msg = str(last_exc).lower()
+            if "invalid library" in msg or "curl_cffi" in msg:
+                self._disable_curl.set()
+            self.logger.debug("curl_cffi 请求失败: %s, error=%s", url, last_exc)
+        return None
+
+    @staticmethod
+    def _is_tls_eof(exc: httpx.HTTPError) -> bool:
+        text = str(exc).lower()
+        return "unexpected eof while reading" in text or "ssl: eof" in text
+
+    def _fallback_request(self, url: str) -> Optional[Any]:
+        resp = self._request_with_requests(url)
+        if resp is not None:
+            return resp
+        return self._request_with_curl(url)
+
+    def get(self, url: str) -> Optional[Any]:
+        if self._force_requests.is_set():
+            return self._fallback_request(url)
+
+        try:
+            return self._request_with_retry(url)
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            if code in {404, 405}:
+                return None
+            self.logger.debug("httpx HTTP 状态异常，降级到后备链路: %s (%s)", url, code)
+            return self._fallback_request(url)
+        except httpx.HTTPError as exc:
+            if self._is_tls_eof(exc):
+                self._force_requests.set()
+                self.logger.warning("检测到 TLS EOF，后续请求跳过 httpx，切换后备链路")
+            else:
+                self.logger.debug("httpx 请求失败，降级到后备链路: %s, error=%s", url, exc)
+            return self._fallback_request(url)
+
+    def fetch_text(self, url: str) -> Optional[str]:
+        resp = self.get(url)
+        if not resp:
+            return None
+        return resp.text
+
+    def fetch_binary(self, url: str) -> Optional[tuple[bytes, str]]:
+        resp = self.get(url)
+        if not resp:
+            return None
+        content_type = resp.headers.get("Content-Type", "")
+        return resp.content, content_type
+
+    def close(self) -> None:
+        with self._client_lock:
+            clients = list(self._clients)
+            self._clients.clear()
+        for client in clients:
+            try:
+                client.close()
+            except Exception:
+                pass
+        with self._requests_lock:
+            sessions = list(self._request_sessions)
+            self._request_sessions.clear()
+        for session in sessions:
+            try:
+                session.close()
+            except Exception:
+                pass
+        with self._curl_lock:
+            curl_sessions = list(self._curl_sessions)
+            self._curl_sessions.clear()
+        for session in curl_sessions:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+
+class CrawlState:
+    """断点状态：已爬 URL、分类分页进度、ID 扫描进度。"""
+
+    def __init__(self, path: Path, resume: bool, logger: logging.Logger):
+        self.path = path
+        self.resume = resume
+        self.logger = logger
+        self.lock = threading.Lock()
+
+        self.data: Dict[str, Any] = {
+            "version": 2,
+            "updated_at": "",
+            "crawled_urls": [],
+            "failed_urls": {},
+            "category_next_page": {},
+            "last_scanned_id": None,
+        }
+        self._crawled: Set[str] = set()
+
+        self._load()
+
+    def _load(self) -> None:
+        if not self.resume or not self.path.exists():
+            return
+        try:
+            payload = read_json(self.path)
+            if isinstance(payload, dict):
+                self.data.update(payload)
+                self._crawled = set(self.data.get("crawled_urls", []))
+                self.logger.info("已加载断点状态：%d 条 URL", len(self._crawled))
+        except Exception as exc:
+            self.logger.warning("读取 state 失败，使用空状态继续: %s", exc)
+
+    def save(self) -> None:
+        with self.lock:
+            self.data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            self.data["crawled_urls"] = sorted(self._crawled)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.path.with_suffix(".tmp")
+            write_json(temp, self.data)
+            temp.replace(self.path)
+
+    def is_crawled(self, url: str) -> bool:
+        return url in self._crawled
+
+    def mark_crawled(self, url: str) -> None:
+        with self.lock:
+            self._crawled.add(url)
+            self.data.setdefault("failed_urls", {}).pop(url, None)
+
+    def mark_failed(self, url: str, reason: str) -> None:
+        with self.lock:
+            self.data.setdefault("failed_urls", {})[url] = {
+                "reason": reason,
+                "time": datetime.now().isoformat(timespec="seconds"),
+            }
+
+    def next_page(self, category: str) -> int:
+        return int(self.data.get("category_next_page", {}).get(category, 1))
+
+    def set_next_page(self, category: str, page: int) -> None:
+        with self.lock:
+            self.data.setdefault("category_next_page", {})[category] = int(page)
+
+    def set_last_scanned_id(self, article_id: int) -> None:
+        with self.lock:
+            self.data["last_scanned_id"] = int(article_id)
+
+
+class ArticleStore:
+    """文章存储 + 索引输出。"""
+
+    def __init__(self, output_dir: Path, logger: logging.Logger):
+        self.output_dir = output_dir
+        self.logger = logger
+        self.images_dir = self.output_dir / "images"
+        self.logs_dir = self.output_dir / "logs"
+
+        self.manifest_path = self.output_dir / "manifest.json"
+        self.index_jsonl_path = self.output_dir / "index.jsonl"
+        self.index_csv_path = self.output_dir / "index.csv"
+        self.index_sqlite_path = self.output_dir / "index.sqlite"
+        self.summary_path = self.output_dir / "summary.json"
+
+        self.lock = threading.Lock()
+        self.manifest: Dict[str, Any] = {
+            "version": 2,
+            "updated_at": "",
+            "articles": {},
+        }
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.images_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self._load_manifest()
+
+    def _load_manifest(self) -> None:
+        if not self.manifest_path.exists():
+            return
+        try:
+            payload = read_json(self.manifest_path)
+            if isinstance(payload, dict) and "articles" in payload:
+                self.manifest.update(payload)
+                self.logger.info("已加载 manifest：%d 篇", len(self.manifest["articles"]))
+        except Exception as exc:
+            self.logger.warning("读取 manifest 失败，继续使用空 manifest: %s", exc)
+
+    def has_url(self, url: str) -> bool:
+        return url in self.manifest.get("articles", {})
+
+    @staticmethod
+    def safe_slug(text: str, max_len: int = 80) -> str:
+        text = re.sub(r"[\\/:*?\"<>|]", "", text)
+        text = re.sub(r"\s+", "_", text.strip())
+        text = re.sub(r"_+", "_", text)
+        text = text.strip("_")
+        if not text:
+            text = "untitled"
+        return text[:max_len].rstrip("_")
+
+    def _unique_path(self, folder: Path, base_name: str) -> Path:
+        candidate = folder / f"{base_name}.md"
+        if not candidate.exists():
+            return candidate
+        i = 1
+        while True:
+            cand = folder / f"{base_name}_{i}.md"
+            if not cand.exists():
+                return cand
+            i += 1
+
+    def save_article(self, article: Dict[str, Any], force: bool = False) -> Optional[Dict[str, Any]]:
+        """保存 Markdown 并写入 manifest。"""
+        url = article.get("url", "").strip()
+        if not url:
+            return None
+
+        with self.lock:
+            existing = self.manifest["articles"].get(url)
+            if existing and not force:
+                return existing
+
+            category_slug = self.safe_slug(article.get("category_slug") or "uncategorized", max_len=40)
+            category_dir = self.output_dir / category_slug
+            category_dir.mkdir(parents=True, exist_ok=True)
+
+            article_id = article.get("article_id")
+            title = article.get("title") or f"article_{article_id or 'unknown'}"
+            safe_title = self.safe_slug(title)
+            if article_id:
+                filename_base = f"{article_id}_{safe_title}"
+            else:
+                filename_base = safe_title
+
+            if existing and force and existing.get("path"):
+                path = self.output_dir / existing["path"]
+            else:
+                path = self._unique_path(category_dir, filename_base)
+
+            markdown = self._build_markdown(article)
+            path.write_text(markdown, encoding="utf-8")
+
+            record = {
+                "url": url,
+                "article_id": article_id,
+                "title": article.get("title", ""),
+                "summary": article.get("summary", ""),
+                "excerpt": self._build_excerpt(article.get("content", "")),
+                "author": article.get("author", ""),
+                "publish_time": article.get("publish_time", ""),
+                "category_slug": category_slug,
+                "category_name": article.get("category_name", ""),
+                "tags": article.get("tags", []),
+                "image_count": int(article.get("image_count", 0)),
+                "source": article.get("source", ""),
+                "path": str(path.relative_to(self.output_dir)),
+                "crawled_at": article.get(
+                    "crawled_at", datetime.now().isoformat(timespec="seconds")
+                ),
+            }
+
+            self.manifest["articles"][url] = record
+            return record
+
+    def _build_markdown(self, article: Dict[str, Any]) -> str:
+        lines: List[str] = []
+        lines.append(f"# {article.get('title', '无标题')}")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        lines.append(f"- URL: {article.get('url', '')}")
+        lines.append(f"- 作者: {article.get('author') or '未知'}")
+        lines.append(f"- 发布时间: {article.get('publish_time') or '未知'}")
+        lines.append(f"- 分类: {article.get('category_name') or article.get('category_slug') or '未知'}")
+        lines.append(f"- 爬取时间: {article.get('crawled_at', '')}")
+
+        tags = article.get("tags") or []
+        if tags:
+            lines.append(f"- 标签: {' '.join(f'`{t}`' for t in tags)}")
+
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+        summary = (article.get("summary") or "").strip()
+        if summary:
+            lines.append("## 摘要")
+            lines.append("")
+            lines.append(summary)
+            lines.append("")
+
+        lines.append("## 正文")
+        lines.append("")
+        lines.append((article.get("content") or "").strip())
+        lines.append("")
+        return "\n".join(lines).strip() + "\n"
+
+    @staticmethod
+    def _build_excerpt(content: str, max_len: int = 600) -> str:
+        text = re.sub(r"\s+", " ", (content or "")).strip()
+        return text[:max_len]
+
+    @staticmethod
+    def _tags_to_text(tags: Any) -> str:
+        if isinstance(tags, str):
+            return tags
+        if isinstance(tags, (list, tuple, set)):
+            return "|".join(str(x) for x in tags if str(x).strip())
+        return ""
+
+    def _flush_sqlite_index(self, records: List[Dict[str, Any]]) -> None:
+        self.index_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.index_sqlite_path)
+        try:
+            conn.executescript(
+                """
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=NORMAL;
+                PRAGMA temp_store=MEMORY;
+                DROP TABLE IF EXISTS articles;
+                DROP TABLE IF EXISTS articles_fts;
+                CREATE TABLE articles (
+                    url TEXT PRIMARY KEY,
+                    article_id INTEGER,
+                    title TEXT,
+                    summary TEXT,
+                    excerpt TEXT,
+                    tags TEXT,
+                    author TEXT,
+                    publish_time TEXT,
+                    category_slug TEXT,
+                    category_name TEXT,
+                    path TEXT,
+                    crawled_at TEXT
+                );
+                CREATE VIRTUAL TABLE articles_fts USING fts5(
+                    url UNINDEXED,
+                    title,
+                    summary,
+                    excerpt,
+                    tags,
+                    author,
+                    category_slug,
+                    category_name,
+                    tokenize='unicode61'
+                );
+                """
+            )
+
+            payload = []
+            for row in records:
+                payload.append(
+                    (
+                        row.get("url", ""),
+                        row.get("article_id"),
+                        row.get("title", ""),
+                        row.get("summary", ""),
+                        row.get("excerpt", ""),
+                        self._tags_to_text(row.get("tags")),
+                        row.get("author", ""),
+                        row.get("publish_time", ""),
+                        row.get("category_slug", ""),
+                        row.get("category_name", ""),
+                        row.get("path", ""),
+                        row.get("crawled_at", ""),
+                    )
+                )
+
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO articles (
+                    url, article_id, title, summary, excerpt, tags, author, publish_time,
+                    category_slug, category_name, path, crawled_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                payload,
+            )
+            conn.execute(
+                """
+                INSERT INTO articles_fts (
+                    url, title, summary, excerpt, tags, author, category_slug, category_name
+                )
+                SELECT
+                    url, title, summary, excerpt, tags, author, category_slug, category_name
+                FROM articles
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_id ON articles(article_id DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category_slug)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_author ON articles(author)")
+            conn.commit()
+        finally:
+            conn.close()
+
+    def flush_indexes(self, stats: CrawlStats) -> None:
+        with self.lock:
+            self.manifest["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            temp = self.manifest_path.with_suffix(".tmp")
+            write_json(temp, self.manifest)
+            temp.replace(self.manifest_path)
+
+            records = list(self.manifest["articles"].values())
+            records.sort(key=lambda x: (x.get("article_id") or 0), reverse=True)
+
+            with self.index_jsonl_path.open("wb") as fh:
+                for row in records:
+                    fh.write(orjson.dumps(row))
+                    fh.write(b"\n")
+
+            fieldnames = [
+                "article_id",
+                "title",
+                "summary",
+                "excerpt",
+                "category_slug",
+                "category_name",
+                "author",
+                "publish_time",
+                "tags",
+                "path",
+                "url",
+                "crawled_at",
+            ]
+            with self.index_csv_path.open("w", encoding="utf-8", newline="") as fh:
+                writer = csv.DictWriter(fh, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in records:
+                    csv_row = dict(row)
+                    csv_row["tags"] = self._tags_to_text(row.get("tags"))
+                    writer.writerow({k: csv_row.get(k, "") for k in fieldnames})
+
+            try:
+                self._flush_sqlite_index(records)
+            except Exception as exc:
+                self.logger.warning("写入 SQLite 索引失败，已跳过: %s", exc)
+
+            category_counter: Dict[str, int] = {}
+            for row in records:
+                slug = row.get("category_slug") or "uncategorized"
+                category_counter[slug] = category_counter.get(slug, 0) + 1
+
+            summary = {
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                "total_articles": len(records),
+                "categories": category_counter,
+                "index_files": {
+                    "jsonl": str(self.index_jsonl_path),
+                    "csv": str(self.index_csv_path),
+                    "sqlite": str(self.index_sqlite_path),
+                },
+                "stats": stats.as_dict(),
+            }
+            write_json(self.summary_path, summary)
+
+
+class ArticleParser:
+    """FreeBuf 列表/详情解析 + HTML 转 Markdown。"""
+
+    def __init__(self, base_url: str, logger: logging.Logger):
+        self.base_url = base_url
+        self.logger = logger
+
+    def normalize_url(self, url: str) -> str:
+        abs_url = urljoin(self.base_url, url)
+        parsed = urlparse(abs_url)
+        # 保留 path，去掉 query/fragment，保证去重稳定
+        clean = parsed._replace(query="", fragment="")
+        return urlunparse(clean)
+
+    def extract_article_id(self, url: str) -> Optional[int]:
+        m = ARTICLE_URL_RE.search(url)
+        if not m:
+            return None
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+
+    def extract_category_slug_from_url(self, url: str) -> str:
+        parsed = urlparse(url)
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) >= 3 and parts[0] == "articles":
+            return parts[1]
+        return ""
+
+    def parse_category_page(
+        self,
+        html: str,
+        category_path: str,
+        category_name: str,
+    ) -> List[ArticleBrief]:
+        results: List[ArticleBrief] = []
+        seen: Set[str] = set()
+        tree = FastHTMLParser(html)
+        items = tree.css("div.article-item")
+
+        for item in items:
+            link = item.css_first(".title-left a[href*='/articles/']") or item.css_first(
+                "a[href*='/articles/']"
+            )
+            href = (link.attributes.get("href") if link else "") or ""
+            if not href:
+                continue
+
+            url = self.normalize_url(href)
+            if url in seen:
+                continue
+            seen.add(url)
+
+            title_node = item.css_first(".title-left .title")
+            title = self._clean_text(
+                title_node.text(strip=True) if title_node else (link.text(strip=True) if link else "")
+            )
+
+            summary_node = item.css_first(".item-top .text")
+            summary = self._clean_text(summary_node.text(strip=True) if summary_node else "")
+
+            author_node = item.css_first(".item-bottom a[href*='/author/']")
+            author = self._clean_text(author_node.text(strip=True) if author_node else "")
+
+            publish_time = ""
+            for span in item.css(".item-bottom span"):
+                text = self._clean_text(span.text(strip=True))
+                m = DATE_RE.search(text)
+                if m:
+                    publish_time = m.group(0)
+
+            results.append(
+                ArticleBrief(
+                    url=url,
+                    article_id=self.extract_article_id(url),
+                    title=title,
+                    summary=summary,
+                    author=author,
+                    publish_time=publish_time,
+                    category_slug=category_path,
+                    category_name=category_name,
+                    source="category_page",
+                )
+            )
+
+        # 兜底：如果页面结构变化，至少通过 URL 正则拿到文章链接
+        if not results:
+            links = sorted(set(re.findall(r"/articles/[\w-]+/\d+\.html", html)))
+            for href in links:
+                url = self.normalize_url(href)
+                if url in seen:
+                    continue
+                seen.add(url)
+                results.append(
+                    ArticleBrief(
+                        url=url,
+                        article_id=self.extract_article_id(url),
+                        category_slug=category_path,
+                        category_name=category_name,
+                        source="category_regex_fallback",
+                    )
+                )
+
+        return results
+
+    def parse_detail_page(
+        self,
+        html: str,
+        brief: ArticleBrief,
+        image_to_md,
+    ) -> Optional[Dict[str, Any]]:
+        soup = BeautifulSoup(html, "html.parser")
+
+        title = self._extract_title(soup) or brief.title
+        if not title:
+            return None
+        if INVALID_TITLE_RE.match(title):
+            return None
+
+        content_root = self._extract_content_root(soup)
+        if not content_root:
+            return None
+
+        self._cleanup_content(content_root)
+
+        content_markdown = self._to_markdown(content_root, image_to_md).strip()
+        if len(content_markdown) < 30:
+            fallback = self._extract_nuxt_post_content(html)
+            if fallback:
+                fallback_soup = BeautifulSoup(fallback, "html.parser")
+                self._cleanup_content(fallback_soup)
+                content_markdown = self._to_markdown(fallback_soup, image_to_md).strip()
+
+        if len(content_markdown) < 30:
+            return None
+
+        publish_time = self._extract_publish_time(soup) or brief.publish_time
+        author = self._extract_author(soup) or brief.author
+        summary = self._extract_summary(soup) or brief.summary
+        tags = self._extract_tags(soup)
+
+        category_slug, category_name = self._extract_category_from_detail(soup)
+        if not category_slug:
+            category_slug = brief.category_slug or self.extract_category_slug_from_url(brief.url)
+        if not category_name:
+            category_name = brief.category_name or CATEGORY_LABELS.get(category_slug, "")
+
+        crawled_at = datetime.now().isoformat(timespec="seconds")
+        return {
+            "url": brief.url,
+            "article_id": brief.article_id or self.extract_article_id(brief.url),
+            "title": title,
+            "summary": summary,
+            "author": author,
+            "publish_time": publish_time,
+            "category_slug": category_slug,
+            "category_name": category_name,
+            "tags": tags,
+            "content": content_markdown,
+            "source": brief.source,
+            "crawled_at": crawled_at,
+        }
+
+    def _clean_text(self, text: str) -> str:
+        text = re.sub(r"\s+", " ", text or "").strip()
+        return text
+
+    def _extract_title(self, soup: BeautifulSoup) -> str:
+        selectors = [
+            ".artical-header .title-span",
+            ".page-head-wrapper .title",
+            "meta[property='og:title']",
+            "meta[name='title']",
+            "title",
+        ]
+        for sel in selectors:
+            el = soup.select_one(sel)
+            if not el:
+                continue
+            if el.name == "meta":
+                text = self._clean_text(el.get("content", ""))
+            else:
+                text = self._clean_text(el.get_text(" ", strip=True))
+            if not text:
+                continue
+            text = FREEBUF_TITLE_SUFFIX_RE.sub("", text).strip()
+            if text:
+                return text
+        return ""
+
+    def _extract_publish_time(self, soup: BeautifulSoup) -> str:
+        selectors = [
+            ".artical-header .date",
+            ".author-info .date",
+            ".date",
+            "meta[property='article:published_time']",
+        ]
+        for sel in selectors:
+            el = soup.select_one(sel)
+            if not el:
+                continue
+            if el.name == "meta":
+                text = self._clean_text(el.get("content", ""))
+            else:
+                text = self._clean_text(el.get_text(" ", strip=True))
+            m = DATE_RE.search(text)
+            if m:
+                return m.group(0)
+        return ""
+
+    def _extract_author(self, soup: BeautifulSoup) -> str:
+        selectors = [
+            ".artical-header .author-info .author",
+            ".author-info .author",
+            ".author",
+            ".name-info .name",
+        ]
+        for sel in selectors:
+            el = soup.select_one(sel)
+            if not el:
+                continue
+            text = self._clean_text(el.get_text(" ", strip=True))
+            text = text.replace("所属地", "").strip()
+            if text and len(text) <= 64 and "关注" not in text:
+                return text
+        return ""
+
+    def _extract_summary(self, soup: BeautifulSoup) -> str:
+        for sel in ["meta[name='description']", "meta[property='og:description']"]:
+            el = soup.select_one(sel)
+            if el:
+                text = self._clean_text(el.get("content", ""))
+                if text:
+                    return text
+        return ""
+
+    def _extract_tags(self, soup: BeautifulSoup) -> List[str]:
+        tags: List[str] = []
+        for el in soup.select(".tags-panel .txt, .tags a, .tag a"):
+            text = self._clean_text(el.get_text(" ", strip=True)).lstrip("#").strip()
+            if text and text not in tags:
+                tags.append(text)
+        return tags
+
+    def _extract_category_from_detail(self, soup: BeautifulSoup) -> tuple[str, str]:
+        link = soup.select_one(".tabs-panel .tab a[href*='/articles/']")
+        if not link:
+            return "", ""
+
+        href = link.get("href", "")
+        full = urljoin(self.base_url, href)
+        parsed = urlparse(full)
+        parts = [p for p in parsed.path.split("/") if p]
+
+        slug = ""
+        if len(parts) >= 2 and parts[0] == "articles":
+            slug = parts[1]
+
+        name = self._clean_text(link.get_text(" ", strip=True))
+        return slug, name
+
+    def _extract_content_root(self, soup: BeautifulSoup) -> Optional[Tag]:
+        selectors = [
+            ".content-detail",
+            ".artical-body .payread-panel",
+            ".artical-body",
+            ".article-content",
+            ".post-content",
+            ".content-body",
+        ]
+        for sel in selectors:
+            el = soup.select_one(sel)
+            if not el:
+                continue
+            text_len = len(el.get_text(" ", strip=True))
+            if text_len >= 120:
+                return el
+        return None
+
+    def _cleanup_content(self, root: Tag) -> None:
+        for node in root.select(
+            "script, style, nav, footer, header, aside, .other-panel, .disclaimer-box, .recommend, .share, .related"
+        ):
+            node.decompose()
+
+        # FreeBuf 页面里常见的空交互节点
+        for node in root.select("button, input, textarea, select"):
+            node.decompose()
+
+    def _extract_nuxt_post_content(self, html: str) -> str:
+        """从 window.__NUXT__ 里兜底提取 post_content。"""
+        m = re.search(r"post_content:'(.*?)',is_original", html, flags=re.S)
+        if not m:
+            return ""
+        raw = m.group(1)
+        raw = raw.replace("\\/", "/")
+        try:
+            # 让 \n \uXXXX 等转义恢复
+            decoded = bytes(raw, "utf-8").decode("unicode_escape")
+            return decoded
+        except Exception:
+            return raw
+
+    def _to_markdown(self, root: Tag, image_to_md) -> str:
+        lines: List[str] = []
+        children = list(root.children) if isinstance(root, Tag) else []
+        for child in children:
+            self._render_block(child, lines, image_to_md=image_to_md, list_level=0)
+
+        # 清理空行
+        cleaned: List[str] = []
+        prev_blank = False
+        for line in lines:
+            blank = not line.strip()
+            if blank and prev_blank:
+                continue
+            cleaned.append(line.rstrip())
+            prev_blank = blank
+        return "\n".join(cleaned).strip() + "\n"
+
+    def _render_block(self, node, lines: List[str], image_to_md, list_level: int) -> None:
+        if isinstance(node, NavigableString):
+            text = self._clean_text(str(node))
+            if text:
+                lines.append(text)
+                lines.append("")
+            return
+
+        if not isinstance(node, Tag):
+            return
+
+        name = node.name.lower()
+
+        if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            level = int(name[1])
+            text = self._inline(node, image_to_md).strip()
+            if text:
+                lines.append(f"{'#' * min(level + 1, 6)} {text}")
+                lines.append("")
+            return
+
+        if name == "p":
+            text = self._inline(node, image_to_md).strip()
+            if text:
+                lines.append(text)
+                lines.append("")
+            return
+
+        if name == "blockquote":
+            text = self._inline(node, image_to_md).strip()
+            if text:
+                for row in text.splitlines():
+                    if row.strip():
+                        lines.append(f"> {row.strip()}")
+                lines.append("")
+            return
+
+        if name in {"ul", "ol"}:
+            ordered = name == "ol"
+            self._render_list(node, lines, image_to_md, ordered=ordered, list_level=list_level)
+            lines.append("")
+            return
+
+        if name == "pre":
+            text = node.get_text("\n", strip=False).strip("\n")
+            if text:
+                lang = ""
+                for cls in node.get("class", []):
+                    if cls.startswith("language-"):
+                        lang = cls.replace("language-", "", 1)
+                        break
+                lines.append(f"```{lang}".rstrip())
+                lines.append(text)
+                lines.append("```")
+                lines.append("")
+            return
+
+        if name == "table":
+            table_lines = self._render_table(node)
+            if table_lines:
+                lines.extend(table_lines)
+                lines.append("")
+            return
+
+        if name == "img":
+            src = node.get("src") or node.get("data-src") or ""
+            if src:
+                md = image_to_md(src, node.get("alt", "图片"))
+                if md:
+                    lines.append(md)
+                    lines.append("")
+            return
+
+        # 容器节点递归
+        for child in node.children:
+            self._render_block(child, lines, image_to_md=image_to_md, list_level=list_level)
+
+    def _render_list(self, node: Tag, lines: List[str], image_to_md, ordered: bool, list_level: int) -> None:
+        lis = [li for li in node.find_all("li", recursive=False)]
+        for idx, li in enumerate(lis, start=1):
+            prefix = f"{idx}. " if ordered else "- "
+            text = self._inline(li, image_to_md).strip()
+            indent = "  " * list_level
+            if text:
+                lines.append(f"{indent}{prefix}{text}")
+
+            # 嵌套列表
+            for sub in li.find_all(["ul", "ol"], recursive=False):
+                self._render_list(
+                    sub,
+                    lines,
+                    image_to_md=image_to_md,
+                    ordered=(sub.name == "ol"),
+                    list_level=list_level + 1,
+                )
+
+    def _render_table(self, table: Tag) -> List[str]:
+        rows = table.find_all("tr")
+        if not rows:
+            return []
+
+        parsed_rows: List[List[str]] = []
+        for row in rows:
+            cells = row.find_all(["th", "td"])
+            if not cells:
+                continue
+            parsed_rows.append([self._clean_text(cell.get_text(" ", strip=True)) for cell in cells])
+
+        if not parsed_rows:
+            return []
+
+        width = max(len(r) for r in parsed_rows)
+        normalized = [r + [""] * (width - len(r)) for r in parsed_rows]
+
+        out: List[str] = []
+        out.append("| " + " | ".join(normalized[0]) + " |")
+        out.append("| " + " | ".join(["---"] * width) + " |")
+        for row in normalized[1:]:
+            out.append("| " + " | ".join(row) + " |")
+        return out
+
+    def _inline(self, node: Tag, image_to_md) -> str:
+        parts: List[str] = []
+        for child in node.children:
+            if isinstance(child, NavigableString):
+                parts.append(str(child))
+                continue
+            if not isinstance(child, Tag):
+                continue
+
+            name = child.name.lower()
+            if name in {"strong", "b"}:
+                text = self._clean_text(self._inline(child, image_to_md))
+                if text:
+                    parts.append(f"**{text}**")
+            elif name in {"em", "i"}:
+                text = self._clean_text(self._inline(child, image_to_md))
+                if text:
+                    parts.append(f"*{text}*")
+            elif name == "code":
+                text = self._clean_text(child.get_text(" ", strip=True))
+                if text:
+                    parts.append(f"`{text}`")
+            elif name == "a":
+                href = child.get("href", "").strip()
+                text = self._clean_text(self._inline(child, image_to_md) or child.get_text(" ", strip=True))
+                if text and href:
+                    parts.append(f"[{text}]({href})")
+                elif text:
+                    parts.append(text)
+            elif name == "img":
+                src = child.get("src") or child.get("data-src") or ""
+                if src:
+                    parts.append(image_to_md(src, child.get("alt", "图片")))
+            elif name == "br":
+                parts.append("\n")
+            else:
+                parts.append(self._inline(child, image_to_md))
+
+        return self._clean_text("".join(parts).replace("\xa0", " "))
+
 
 class FreeBufCrawler:
-    def __init__(self, base_url: str = "https://www.freebuf.com/", delay: int = 2, max_pages: int = 50, categories: Optional[List[str]] = None):
-        """初始化爬虫
-        
-        Args:
-            base_url: FreeBuf基础URL
-            delay: 请求延迟时间(秒)
-            max_pages: 每个分类最大抓取页数
-            categories: 要抓取的分类列表
-        """
-        self.base_url = base_url
-        self.delay = max(delay, 1)  # 确保至少1秒延迟
-        self.max_pages = max_pages
-        self.categories = categories or self._get_default_categories()
-        self.category_names = self._get_category_mapping()
-        
-        # 初始化核心组件
-        self._init_session()
-        self._init_logging()
-        self._init_directories()
-        
-        # 状态管理
-        self.crawled_urls = set()
+    """兼容旧接口的重构版爬虫。"""
+
+    def __init__(
+        self,
+        base_url: str = "https://www.freebuf.com/",
+        delay: float = 2,
+        max_pages: int = 50,
+        categories: Optional[List[str]] = None,
+        output_dir: str = "freebuf_data",
+        workers: int = 6,
+        max_articles_total: Optional[int] = None,
+        resume: bool = True,
+        download_images: bool = True,
+        force: bool = False,
+        scan_by_id: bool = False,
+        id_start: Optional[int] = None,
+        id_end: Optional[int] = None,
+        config: Optional[CrawlConfig] = None,
+    ):
+        if config is None:
+            config = CrawlConfig(
+                base_url=base_url,
+                categories=self._normalize_categories(categories) if categories else list(DEFAULT_CATEGORIES),
+                output_dir=Path(output_dir),
+                delay=max(float(delay), 0.0),
+                max_pages_per_category=max(1, int(max_pages)),
+                workers=max(1, int(workers)),
+                max_articles_total=max_articles_total,
+                resume=resume,
+                download_images=download_images,
+                force=force,
+                scan_by_id=scan_by_id,
+                id_start=id_start,
+                id_end=id_end,
+            )
+        self.config = config
+
+        self.logger = self._init_logger(self.config.output_dir)
+        self.stats = CrawlStats()
+        self.stats_lock = threading.Lock()
+
+        self.http = HttpClient(self.config, self.logger)
+        self.state = CrawlState(self.config.output_dir / "state.json", self.config.resume, self.logger)
+        self.store = ArticleStore(self.config.output_dir, self.logger)
+        self.parser = ArticleParser(self.config.base_url, self.logger)
+
+        self._executor: Optional[ThreadPoolExecutor] = None
+        self._image_cache: Dict[str, str] = {}
+        self._image_lock = threading.Lock()
+
+        # 旧字段兼容
         self.article_count = 0
-        self.start_time = datetime.now()
-        
-        # 统计信息
-        self.stats = {
-            'total_articles': 0,
-            'successful_downloads': 0,
-            'failed_downloads': 0,
-            'images_downloaded': 0,
-            'start_time': None,
-            'end_time': None
-        }
-        
+        self.category_names = dict(CATEGORY_LABELS)
+        self.crawled_urls = set(self.state.data.get("crawled_urls", []))
+
     @staticmethod
-    def _get_default_categories() -> List[str]:
-        """获取默认分类列表"""
-        return [
-            'articles/container',     # 容器安全
-            'articles/ai-security',   # AI安全
-            'articles/development',   # 开发安全
-            'articles/endpoint',      # 终端安全
-            'articles/database',      # 数据安全
-            'articles/web',           # Web安全
-            'articles/network',       # 网络安全
-            'articles/es',            # 企业安全
-            'ics-articles',           # 工控安全
-            'articles/mobile',        # 移动安全
-            'articles/system',        # 系统安全
-            'articles/others-articles' # 其他安全
-        ]
-    
-    @staticmethod
-    def _get_category_mapping() -> Dict[str, str]:
-        """获取分类映射表"""
-        return {
-            'articles/container': '容器安全',
-            'articles/ai-security': 'AI安全',
-            'articles/development': '开发安全',
-            'articles/endpoint': '终端安全',
-            'articles/database': '数据安全',
-            'articles/web': 'Web安全',
-            'articles/network': '网络安全',
-            'articles/es': '企业安全',
-            'ics-articles': '工控安全',
-            'articles/mobile': '移动安全',
-            'articles/system': '系统安全',
-            'articles/others-articles': '其他安全'
-        }
-        
-    def _init_session(self):
-        """初始化请求会话"""
-        self.session = requests.Session()
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        }
-        self.session.headers.update(self.headers)
-        
-        # 设置重试策略
-        retry_strategy = requests.packages.urllib3.util.retry.Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504]
-        )
-        adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
-        self.session.mount("http://", adapter)
-        self.session.mount("https://", adapter)
-    
-    def _init_logging(self):
-        """初始化日志配置"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('freebuf_crawler.log', encoding='utf-8'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
-    
-    def _init_directories(self):
-        """初始化存储目录"""
-        # 创建数据存储目录
-        self.data_dir = "freebuf_data"
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
-        
-        # 创建图片存储目录
-        self.images_dir = os.path.join(self.data_dir, "images")
-        if not os.path.exists(self.images_dir):
-            os.makedirs(self.images_dir)
-        
-        # 创建日志目录
-        self.logs_dir = os.path.join(self.data_dir, "logs")
-        if not os.path.exists(self.logs_dir):
-            os.makedirs(self.logs_dir)
-        
-    def get_page(self, url, retries=3):
-        """获取网页内容"""
-        try:
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
-            response.encoding = response.apparent_encoding
-            return response.text
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"获取页面失败: {url}, 错误: {e}")
-            if retries > 0:
-                self.logger.info(f"重试中... 剩余重试次数: {retries}")
-                time.sleep(self.delay * 2)
-                return self.get_page(url, retries - 1)
-            return None
-    
-    def parse_article_list(self, html):
-        """解析文章列表页面"""
-        soup = BeautifulSoup(html, 'html.parser')
-        articles = []
-        
-        # 常见的文章列表选择器
-        article_selectors = [
-            '.article-item', '.post-item', '.feed-item', '.list-item',
-            'article', '.post', '.entry', '[class*="article"]', '[class*="post"]'
-        ]
-        
-        for selector in article_selectors:
-            elements = soup.select(selector)
-            if elements:
-                self.logger.info(f"找到 {len(elements)} 篇文章，使用选择器: {selector}")
-                break
-        else:
-            # 如果没有找到特定选择器，尝试通过链接模式匹配
-            links = soup.find_all('a', href=True)
-            article_links = []
-            for link in links:
-                href = link.get('href')
-                if href and self.is_article_url(href):
-                    article_links.append(link)
-            elements = article_links
-            self.logger.info(f"通过链接模式找到 {len(elements)} 篇文章")
-        
-        for element in elements:
-            article = self.extract_article_info(element)
-            if article:
-                articles.append(article)
-                
-        return articles
-    
-    def is_article_url(self, url):
-        """判断是否为文章URL"""
-        article_patterns = [
-            r'/articles/',
-            r'/news/',
-            r'/posts/',
-            r'/\d{4}/\d{2}/\d{2}/',
-            r'/\d+\.html'
-        ]
-        
-        for pattern in article_patterns:
-            if re.search(pattern, url):
-                return True
-        return False
-    
-    def extract_article_info(self, element):
-        """从文章元素中提取信息"""
-        # 提取标题
-        title = None
-        title_selectors = ['h1', 'h2', 'h3', '.title', '.post-title', '.article-title']
-        for selector in title_selectors:
-            title_elem = element.select_one(selector)
-            if title_elem:
-                title = title_elem.get_text(strip=True)
-                break
-        
-        if not title:
-            # 尝试从链接文本获取标题
-            link = element.find('a')
-            if link:
-                title = link.get_text(strip=True)
-        
-        # 提取链接
-        url = None
-        link = element.find('a')
-        if link:
-            url = link.get('href')
-            if url:
-                url = urljoin(self.base_url, url)
-        
-        # 提取摘要
-        summary = None
-        summary_selectors = ['.summary', '.excerpt', '.description', '.post-excerpt']
-        for selector in summary_selectors:
-            summary_elem = element.select_one(selector)
-            if summary_elem:
-                summary = summary_elem.get_text(strip=True)
-                break
-        
-        # 提取时间
-        publish_time = None
-        time_selectors = ['.time', '.date', '.post-time', '.publish-time']
-        for selector in time_selectors:
-            time_elem = element.select_one(selector)
-            if time_elem:
-                publish_time = time_elem.get_text(strip=True)
-                break
-        
-        # 提取作者
-        author = None
-        author_selectors = ['.author', '.writer', '.post-author']
-        for selector in author_selectors:
-            author_elem = element.select_one(selector)
-            if author_elem:
-                author = author_elem.get_text(strip=True)
-                break
-        
-        if title and url:
-            return {
-                'title': title,
-                'url': url,
-                'summary': summary,
-                'publish_time': publish_time,
-                'author': author,
-                'crawl_time': datetime.now().isoformat()
-            }
-        return None
-    
-    def parse_article_detail(self, html, url, category_dir=None):
-        """解析文章详情页面"""
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # 调试：输出页面标题
-        title = soup.find('title')
-        if title:
-            self.logger.info(f"页面标题: {title.get_text()}")
-        
-        # 提取文章元信息
-        article_meta = self._extract_article_meta(soup)
-        
-        # 先尝试移除所有无用元素
-        self._cleanup_elements(soup)
-        
-        # 尝试多种内容提取策略
-        content_elem = None
-        strategies = [
-            self._extract_by_selectors,
-            self._extract_by_structured_content,
-            self._extract_by_paragraph_analysis,
-            self.extract_main_content
-        ]
-        
-        for i, strategy in enumerate(strategies):
-            self.logger.info(f"尝试内容提取策略 {i+1}: {strategy.__name__}")
-            content_elem = strategy(soup)
-            if content_elem:
-                text = content_elem.get_text(strip=True)
-                if text and len(text) > 200:  # 确保内容足够长
-                    self.logger.info(f"策略 {i+1} 成功，内容长度: {len(text)}")
-                    break
-                else:
-                    content_elem = None
-        
-        # 处理图片并生成Markdown内容
-        markdown_content = ""
-        if content_elem:
-            text = content_elem.get_text(strip=True)
-            self.logger.info(f"最终内容长度: {len(text)}")
-            self.logger.info(f"内容预览: {text[:200]}...")
-            markdown_content = self.process_content_with_images(content_elem, category_dir)
-        else:
-            self.logger.warning("未找到内容元素")
-        
-        # 提取标签
-        tags = self._extract_tags(soup)
-        
-        # 合并元信息
-        result = {
-            'url': url,
-            'content': markdown_content,
-            'tags': tags,
-            'crawl_time': datetime.now().isoformat()
-        }
-        result.update(article_meta)
-        
-        return result
-    
-    def _extract_article_meta(self, soup):
-        """提取文章元信息"""
-        meta = {}
-        
-        # 提取作者
-        author_selectors = [
-            '.author', '.writer', '.post-author', '.article-author',
-            '.meta-author', '.by-author', '[class*="author"]'
-        ]
-        for selector in author_selectors:
-            author_elem = soup.select_one(selector)
-            if author_elem:
-                author_text = author_elem.get_text(strip=True)
-                if author_text and self._is_valid_text(author_text):
-                    meta['author'] = author_text
-                    break
-        
-        # 提取发布时间
-        time_selectors = [
-            '.time', '.date', '.post-time', '.publish-time',
-            '.meta-time', '.post-date', '.article-date',
-            '[class*="time"]', '[class*="date"]'
-        ]
-        for selector in time_selectors:
-            time_elem = soup.select_one(selector)
-            if time_elem:
-                time_text = time_elem.get_text(strip=True)
-                if time_text and self._is_valid_text(time_text):
-                    meta['publish_time'] = time_text
-                    break
-        
-        # 提取阅读量等统计信息
-        view_selectors = [
-            '.views', '.read-count', '.post-views',
-            '[class*="view"]', '[class*="read"]'
-        ]
-        for selector in view_selectors:
-            view_elem = soup.select_one(selector)
-            if view_elem:
-                view_text = view_elem.get_text(strip=True)
-                if view_text and self._is_valid_text(view_text):
-                    meta['views'] = view_text
-                    break
-        
-        return meta
-    
-    def _extract_by_selectors(self, soup):
-        """通过CSS选择器提取内容"""
-        content_selectors = [
-            '.article-content', '.post-content', '.entry-content',
-            '.content', '.post-body', '.article-body',
-            '.article-detail', '.post-detail', '.entry-content',
-            '.main-content', '.article-main', '.post-main',
-            '#article-content', '#post-content', '#content',
-            '.article-detail-content', '.post-detail-content',
-            '.article-text', '.post-text', '.entry-text',
-            '.article-body-content', '.post-body-content'
-        ]
-        
-        for selector in content_selectors:
-            content_elem = soup.select_one(selector)
-            if content_elem:
-                text = content_elem.get_text(strip=True)
-                if text and len(text) > 200 and self._is_valid_text(text):
-                    self.logger.info(f"选择器 {selector} 找到内容长度: {len(text)}")
-                    return content_elem
-        
-        return None
-    
-    def _extract_by_structured_content(self, soup):
-        """通过结构化内容提取"""
-        # 寻找包含文章内容的结构化区域
-        content_candidates = []
-        
-        # 检查常见的内容容器
-        content_containers = ['article', 'main', '[role="main"]', '.content-area', '.article-area']
-        for container in content_containers:
-            elements = soup.select(container)
-            for elem in elements:
-                text = elem.get_text(strip=True)
-                if text and len(text) > 300:
-                    content_candidates.append((elem, len(text)))
-        
-        if content_candidates:
-            # 选择文本最长的候选
-            content_candidates.sort(key=lambda x: x[1], reverse=True)
-            return content_candidates[0][0]
-        
-        return None
-    
-    def _extract_by_paragraph_analysis(self, soup):
-        """通过段落分析提取内容"""
-        # 找到所有段落
-        paragraphs = soup.find_all('p')
-        
-        if len(paragraphs) < 3:
-            return None
-        
-        # 分析段落质量
-        good_paragraphs = []
-        for p in paragraphs:
-            text = p.get_text(strip=True)
-            if text and len(text) > 20 and self._is_valid_text(text):
-                # 检查是否包含完整句子
-                sentences = text.split('。')                
-                if len(sentences) > 1 or len(text) > 50:
-                    good_paragraphs.append(p)
-        
-        if len(good_paragraphs) >= 3:
-            # 找到这些段落的共同父容器
-            parent_map = {}
-            for p in good_paragraphs:
-                parent = p.parent
-                while parent:
-                    if parent.name in ['div', 'section', 'article', 'main']:
-                        parent_map[parent] = parent_map.get(parent, 0) + 1
-                    parent = parent.parent
-            
-            if parent_map:
-                # 选择包含最多优质段落的容器
-                best_parent = max(parent_map, key=parent_map.get)
-                if parent_map[best_parent] >= 3:
-                    return best_parent
-        
-        return None
-    
-    def _extract_tags(self, soup):
-        """提取文章标签"""
-        tags = []
-        tag_selectors = [
-            '.tags a', '.post-tags a', '.article-tags a',
-            '.tag-list a', '.category-tags a',
-            '.meta-tags a', '.article-meta-tags a',
-            '[class*="tag"] a', '[class*="category"] a'
-        ]
-        
-        for selector in tag_selectors:
-            tag_elems = soup.select(selector)
-            for tag_elem in tag_elems:
-                tag_text = tag_elem.get_text(strip=True)
-                if tag_text and self._is_valid_text(tag_text) and tag_text not in tags:
-                    tags.append(tag_text)
-        
-        return tags
-    
-    def _cleanup_elements(self, soup):
-        """清理无用元素"""
-        # 移除脚本、样式等
-        for elem in soup(['script', 'style', 'nav', 'header', 'footer', 'aside']):
-            elem.decompose()
-        
-        # 移除按钮、输入框等交互元素
-        for elem in soup(['button', 'input', 'select', 'textarea']):
-            elem.decompose()
-        
-        # 移除包含特定文本的元素
-        button_texts = ['收入我的专辑', '加入我的收藏', '展开更多', '收起', '分享', '点赞']
-        for text in button_texts:
-            for elem in soup.find_all(text=re.compile(text)):
-                parent = elem.parent
-                if parent:
-                    parent.decompose()
-    
-    def save_article(self, article_info, article_detail=None, category_dir=None):
-        """保存文章数据为Markdown格式"""
-        article_data = {**article_info}
-        if article_detail:
-            article_data.update(article_detail)
-        
-        # 确定保存目录
-        save_dir = category_dir if category_dir else self.data_dir
-        
-        # 生成安全的文件名
-        safe_filename = self.generate_safe_filename(article_info['title'])
-        filename = f"{safe_filename}.md"
-        filepath = os.path.join(save_dir, filename)
-        
-        # 如果文件已存在，添加序号
-        counter = 1
-        original_filepath = filepath
-        while os.path.exists(filepath):
-            filename = f"{safe_filename}_{counter}.md"
-            filepath = os.path.join(save_dir, filename)
-            counter += 1
-        
-        # 生成Markdown内容
-        markdown_content = self.generate_markdown(article_data)
-        
-        # 保存Markdown文件
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(markdown_content)
-        
-        self.article_count += 1
-        self.logger.info(f"保存文章: {article_info['title']} -> {filepath}")
-    
-    def generate_safe_filename(self, title):
-        """生成安全的文件名"""
-        # 移除特殊字符，只保留中文、字母、数字、下划线和连字符
-        import re
-        
-        # 将中文和英文保持不变，移除其他特殊字符
-        safe_name = re.sub(r'[\\/:*?"<>|]', '', title)
-        
-        # 替换空格为下划线
-        safe_name = re.sub(r'\s+', '_', safe_name)
-        
-        # 移除连续的下划线
-        safe_name = re.sub(r'_+', '_', safe_name)
-        
-        # 去除首尾的下划线
-        safe_name = safe_name.strip('_')
-        
-        # 如果文件名为空，使用默认名称
-        if not safe_name:
-            safe_name = f"article_{self.article_count:06d}"
-        
-        # 限制文件名长度（避免路径过长）
-        if len(safe_name) > 100:
-            safe_name = safe_name[:100].rstrip('_')
-        
-        return safe_name
-    
-    def extract_main_content(self, soup):
-        """智能提取主要内容"""
-        # 先清理无用元素
-        self._cleanup_elements(soup)
-        
-        # 移除特定的无用类
-        useless_classes = ['nav', 'menu', 'sidebar', 'comments', 'share', 'related', 'tags', 'meta', 'info', 'author', 'date', 'header', 'footer']
-        for class_name in useless_classes:
-            for elem in soup.find_all(class_=re.compile(class_name)):
-                elem.decompose()
-        
-        # 寻找可能包含文章内容的区域
-        content_candidates = []
-        
-        # 检查所有div和section
-        for elem in soup.find_all(['div', 'section', 'article', 'main']):
-            # 跳过明显不是内容的区域
-            class_name = elem.get('class', [])
-            if class_name:
-                class_str = ' '.join(class_name).lower()
-                if any(useless in class_str for useless in ['nav', 'menu', 'sidebar', 'comment', 'share', 'related', 'tag', 'meta', 'info', 'author', 'date', 'header', 'footer']):
-                    continue
-            
-            # 检查文本内容
-            text = elem.get_text(strip=True)
-            if len(text) > 300:  # 只考虑文本长度超过300字符的元素
-                # 检查是否包含按钮文本
-                if not any(btn_text in text for btn_text in ['收入我的专辑', '加入我的收藏', '展开更多', '收起', '分享', '点赞']):
-                    content_candidates.append((elem, len(text)))
-        
-        if content_candidates:
-            # 选择文本最长的候选
-            content_candidates.sort(key=lambda x: x[1], reverse=True)
-            return content_candidates[0][0]
-        
-        # 如果还是没找到，尝试查找包含段落的区域
-        for elem in soup.find_all(['div', 'section', 'article']):
-            paragraphs = elem.find_all('p')
-            if len(paragraphs) >= 3:  # 至少3个段落
-                return elem
-        
-        # 最后的备选方案
-        return soup.find('body') or soup
-    
-    def process_content_with_images(self, content_elem, category_dir=None):
-        """处理内容中的图片，生成Markdown格式"""
-        # 首先移除不需要的元素
-        for elem in content_elem.find_all(['script', 'style', 'nav', 'header', 'footer', 'aside', 'button', 'input', 'select', 'textarea']):
-            elem.decompose()
-        
-        # 移除特定的无用元素（根据FreeBuf网站的实际情况）
-        for elem in content_elem.find_all(class_=['article-meta', 'article-info', 'article-tags', 'share-box', 'related-articles']):
-            elem.decompose()
-        
-        markdown_lines = []
-        
-        def process_element(element, depth=0):
-            if element.name is None:
-                # 文本节点
-                text = str(element).strip()
-                if text and self._is_valid_text(text):
-                    markdown_lines.append(text)
-            elif element.name == 'img':
-                # 处理图片
-                img_src = element.get('src')
-                img_alt = element.get('alt', '')
-                img_title = element.get('title', '')
-                
-                if img_src:
-                    # 下载图片并获取本地路径
-                    local_img_path = self.download_image(img_src)
-                    if local_img_path:
-                        # 构建图片引用，使用相对于分类目录的路径
-                        if category_dir:
-                            # 如果在分类目录中，图片路径需要向上一级
-                            img_path = f"../images/{local_img_path}"
-                        else:
-                            # 如果在根目录，直接使用images路径
-                            img_path = f"images/{local_img_path}"
-                        alt_text = img_alt or img_title or '图片'
-                        markdown_lines.append(f"![{alt_text}]({img_path})")
-                    else:
-                        # 如果下载失败，保留原始链接
-                        alt_text = img_alt or img_title or '图片'
-                        markdown_lines.append(f"![{alt_text}]({img_src})")
-                else:
-                    markdown_lines.append(f"![{img_alt or img_title or '图片'}]")
-            elif element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                # 处理标题
-                level = int(element.name[1])
-                text = element.get_text(strip=True)
-                if text and self._is_valid_text(text):
-                    # 确保标题级别合理（避免过深的嵌套）
-                    adjusted_level = min(level + 1, 6)  # 文章内容从h2开始
-                    markdown_lines.append(f"{'#' * adjusted_level} {text}")
-                    markdown_lines.append("")  # 标题后空行
-            elif element.name == 'p':
-                # 处理段落
-                text = element.get_text(strip=True)
-                if text and self._is_valid_text(text):
-                    # 检查是否是标题文本（单独的粗体文本）
-                    if element.find('strong') and len(text) < 100:
-                        markdown_lines.append(f"**{text}**")
-                    else:
-                        markdown_lines.append(f"{text}")
-                    markdown_lines.append("")  # 段落后空行
-            elif element.name == 'a':
-                # 处理链接
-                href = element.get('href')
-                text = element.get_text(strip=True)
-                if href and text and self._is_valid_text(text):
-                    markdown_lines.append(f"[{text}]({href})")
-                elif text and self._is_valid_text(text):
-                    markdown_lines.append(text)
-            elif element.name in ['ul', 'ol']:
-                # 处理列表
-                list_items = element.find_all('li', recursive=False)
-                if list_items:
-                    for i, li in enumerate(list_items):
-                        text = li.get_text(strip=True)
-                        if text and self._is_valid_text(text):
-                            if element.name == 'ul':
-                                markdown_lines.append(f"- {text}")
-                            else:
-                                markdown_lines.append(f"{i + 1}. {text}")
-                    markdown_lines.append("")  # 列表后空行
-            elif element.name in ['strong', 'b']:
-                # 处理粗体
-                text = element.get_text(strip=True)
-                if text and self._is_valid_text(text):
-                    markdown_lines.append(f"**{text}**")
-            elif element.name in ['em', 'i']:
-                # 处理斜体
-                text = element.get_text(strip=True)
-                if text and self._is_valid_text(text):
-                    markdown_lines.append(f"*{text}*")
-            elif element.name == 'code':
-                # 处理行内代码
-                text = element.get_text(strip=True)
-                if text and self._is_valid_text(text):
-                    markdown_lines.append(f"`{text}`")
-            elif element.name == 'pre':
-                # 处理代码块
-                text = element.get_text()
-                if text and self._is_valid_text(text):
-                    # 尝试检测代码语言
-                    code_class = element.get('class', [])
-                    language = ''
-                    for cls in code_class:
-                        if 'language-' in cls:
-                            language = cls.replace('language-', '')
-                            break
-                    
-                    if language:
-                        markdown_lines.append(f"```{language}\n{text}\n```")
-                    else:
-                        markdown_lines.append(f"```\n{text}\n```")
-                    markdown_lines.append("")  # 代码块后空行
-            elif element.name == 'blockquote':
-                # 处理引用
-                text = element.get_text(strip=True)
-                if text and self._is_valid_text(text):
-                    # 多行引用处理
-                    lines = text.split('\n')
-                    for line in lines:
-                        if line.strip():
-                            markdown_lines.append(f"> {line.strip()}")
-                    markdown_lines.append("")  # 引用后空行
-            elif element.name == 'div':
-                # 处理div容器，递归处理子元素
-                # 先检查是否是特殊容器
-                div_class = element.get('class', [])
-                if 'code-block' in div_class or 'highlight' in div_class:
-                    # 代码块容器
-                    code_text = element.get_text()
-                    if code_text and self._is_valid_text(code_text):
-                        markdown_lines.append(f"```\n{code_text}\n```")
-                        markdown_lines.append("")
-                else:
-                    # 普通div容器
-                    for child in element.children:
-                        process_element(child, depth + 1)
-            elif element.name == 'table':
-                # 处理表格
-                markdown_table = self._process_table(element)
-                if markdown_table:
-                    markdown_lines.append(markdown_table)
-                    markdown_lines.append("")
+    def _normalize_categories(categories: Optional[Sequence[str]]) -> List[str]:
+        if not categories:
+            return list(DEFAULT_CATEGORIES)
+
+        normalized: List[str] = []
+        seen: Set[str] = set()
+        for raw in categories:
+            v = (raw or "").strip().strip("/")
+            if not v:
+                continue
+            if v in CATEGORY_LABELS:
+                key = v
+            elif v == "ics-articles":
+                key = v
+            elif not v.startswith("articles/") and f"articles/{v}" in CATEGORY_LABELS:
+                key = f"articles/{v}"
             else:
-                # 其他元素，递归处理子元素
-                for child in element.children:
-                    process_element(child, depth + 1)
-        
-        # 处理所有子元素
-        for element in content_elem.children:
-            process_element(element)
-        
-        # 清理结果：移除多余的空行，合并连续的空行
-        cleaned_lines = []
-        prev_empty = False
-        for line in markdown_lines:
-            if line.strip() == "":
-                if not prev_empty:
-                    cleaned_lines.append("")
-                prev_empty = True
-            else:
-                cleaned_lines.append(line)
-                prev_empty = False
-        
-        return '\n'.join(cleaned_lines)
-    
-    def _is_valid_text(self, text):
-        """检查文本是否有效（不是按钮文本等）"""
-        invalid_patterns = [
-            r'^[+收加展更]',  # 以这些字符开头的文本
-            r'收入我的专辑',
-            r'加入我的收藏', 
-            r'展开更多',
-            r'收起',
-            r'分享',
-            r'点赞',
-            r'评论',
-            r'关注',
-            r'阅读全文',
-            r'点击查看',
-            r'立即购买',
-            r'免费试用',
-            r'了解更多',
-            r'联系我们',
-            r'返回顶部',
-            r'上一页',
-            r'下一页',
-            r'首页',
-            r'尾页'
-        ]
-        
-        text = text.strip()
-        if not text or len(text) < 2:
-            return False
-            
-        for pattern in invalid_patterns:
-            if re.search(pattern, text):
-                return False
-                
-        return True
-    
-    def _process_table(self, table_elem):
-        """处理HTML表格为Markdown格式"""
-        try:
-            rows = table_elem.find_all('tr')
-            if not rows:
-                return None
-            
-            markdown_lines = []
-            
-            # 处理表头
-            header_row = rows[0]
-            headers = header_row.find_all(['th', 'td'])
-            if headers:
-                header_cells = []
-                for header in headers:
-                    header_text = header.get_text(strip=True)
-                    header_cells.append(header_text)
-                markdown_lines.append(f"| {' | '.join(header_cells)} |")
-                markdown_lines.append(f"| {' | '.join(['---'] * len(header_cells))} |")
-            
-            # 处理数据行
-            for row in rows[1:]:
-                cells = row.find_all(['td', 'th'])
-                if cells:
-                    row_cells = []
-                    for cell in cells:
-                        cell_text = cell.get_text(strip=True)
-                        row_cells.append(cell_text)
-                    markdown_lines.append(f"| {' | '.join(row_cells)} |")
-            
-            return '\n'.join(markdown_lines)
-        except Exception as e:
-            self.logger.warning(f"处理表格失败: {e}")
-            return None
-    
-    def download_image(self, img_url):
-        """下载图片到本地"""
-        try:
-            # 构建完整URL
-            if not img_url.startswith(('http://', 'https://')):
-                img_url = urljoin(self.base_url, img_url)
-            
-            # 清理URL参数
-            img_url = self._clean_image_url(img_url)
-            
-            # 生成文件名
-            url_hash = hashlib.md5(img_url.encode()).hexdigest()
-            file_extension = self.get_image_extension(img_url)
-            filename = f"{url_hash}{file_extension}"
-            filepath = os.path.join(self.images_dir, filename)
-            
-            # 如果文件已存在，直接返回
-            if os.path.exists(filepath):
-                self.logger.debug(f"图片已存在: {filename}")
-                return filename
-            
-            # 下载图片
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Referer': self.base_url,
-                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive'
-            }
-            
-            response = self.session.get(img_url, headers=headers, timeout=15)
-            response.raise_for_status()
-            
-            # 检查文件类型
-            content_type = response.headers.get('content-type', '')
-            if not content_type.startswith('image/'):
-                self.logger.warning(f"URL不是图片: {img_url}, Content-Type: {content_type}")
-                return None
-            
-            # 保存图片
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-            
-            # 验证文件是否成功保存
-            if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
-                self.logger.info(f"下载图片成功: {img_url} -> {filename} ({os.path.getsize(filepath)} bytes)")
-                self.stats['images_downloaded'] += 1
-                return filename
-            else:
-                self.logger.error(f"图片保存失败: {filename}")
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                return None
-            
-        except Exception as e:
-            self.logger.error(f"下载图片失败: {img_url}, 错误: {e}")
-            return None
-    
-    def _clean_image_url(self, img_url):
-        """清理图片URL，移除不必要的参数"""
-        try:
-            parsed = urlparse(img_url)
-            # 移除一些常见的追踪参数
-            params = []
-            for param in parsed.query.split('&'):
-                if param and not any(skip in param.lower() for skip in ['utm_', 'ref=', 'from=', 'share=', 'random=']):
-                    params.append(param)
-            
-            clean_query = '&'.join(params) if params else ''
-            clean_url = parsed._replace(query=clean_query).geturl()
-            return clean_url
-        except Exception:
-            return img_url
-    
-    def get_image_extension(self, img_url):
-        """根据URL获取图片扩展名"""
-        parsed_url = urlparse(img_url)
-        path = parsed_url.path.lower()
-        
-        if path.endswith(('.jpg', '.jpeg')):
-            return '.jpg'
-        elif path.endswith('.png'):
-            return '.png'
-        elif path.endswith('.gif'):
-            return '.gif'
-        elif path.endswith('.webp'):
-            return '.webp'
-        elif path.endswith('.svg'):
-            return '.svg'
-        elif path.endswith('.bmp'):
-            return '.bmp'
-        elif path.endswith('.tiff'):
-            return '.tiff'
-        else:
-            return '.jpg'  # 默认扩展名
-    
-    def generate_markdown(self, article_data):
-        """生成Markdown格式内容"""
-        markdown = f"# {article_data.get('title', '无标题')}\n\n"
-        
-        # 添加分隔线
-        markdown += "---\n\n"
-        
-        # 添加元数据
-        markdown += f"**URL**: {article_data.get('url', '')}\n\n"
-        markdown += f"**作者**: {article_data.get('author', '未知')}\n\n"
-        markdown += f"**发布时间**: {article_data.get('publish_time', '未知')}\n\n"
-        markdown += f"**爬取时间**: {article_data.get('crawl_time', '')}\n\n"
-        
-        # 添加摘要
-        if article_data.get('summary'):
-            markdown += "## 摘要\n\n"
-            markdown += f"{article_data['summary']}\n\n"
-        
-        # 添加标签
-        if article_data.get('tags'):
-            markdown += "## 标签\n\n"
-            tags_str = ' '.join([f"`{tag}`" for tag in article_data['tags']])
-            markdown += f"{tags_str}\n\n"
-        
-        # 添加分隔线
-        markdown += "---\n\n"
-        
-        # 添加正文内容
-        if article_data.get('content'):
-            markdown += "## 正文\n\n"
-            markdown += f"{article_data['content']}\n"
-        
-        return markdown
-    
-    def crawl(self):
-        """开始爬取"""
-        self.logger.info("开始爬取FreeBuf网站...")
-        
-        # 爬取指定分类
-        for category in self.categories:
-            if self.article_count >= self.max_pages:
-                break
-                
-            category_url = urljoin(self.base_url, category)
-            category_name = self.category_names.get(category, category.split('/')[-1])
-            self.logger.info(f"爬取分类: {category_name} - {category_url}")
-            
-            # 为每个分类创建子目录
-            dir_name = category.split('/')[-1]
-            category_dir = os.path.join(self.data_dir, dir_name)
-            if not os.path.exists(category_dir):
-                os.makedirs(category_dir)
-            
-            self.crawl_category(category_url, category_dir)
-            
-            # 礼貌性延迟
-            time.sleep(self.delay + random.uniform(0, 2))
-        
-        self.logger.info(f"爬取完成，共爬取 {self.article_count} 篇文章")
-    
-    def crawl_category(self, category_url, category_dir=None):
-        """爬取单个分类"""
-        page = 1
-        while self.article_count < self.max_pages:
-            # 构建分页URL
-            if page == 1:
-                url = category_url
-            else:
-                # 常见的分页模式
-                page_patterns = [
-                    f"{category_url}page/{page}/",
-                    f"{category_url}?page={page}",
-                    f"{category_url}index_{page}.html"
-                ]
-                
-                url = page_patterns[0]  # 默认使用第一种模式
-            
-            self.logger.info(f"爬取页面: {url}")
-            
-            html = self.get_page(url)
+                key = v
+            if key not in seen:
+                seen.add(key)
+                normalized.append(key)
+        return normalized or list(DEFAULT_CATEGORIES)
+
+    def _init_logger(self, output_dir: Path) -> logging.Logger:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "logs").mkdir(parents=True, exist_ok=True)
+
+        logger = logging.getLogger("freebuf_crawler")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+
+        if logger.handlers:
+            return logger
+
+        fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+        stream_h = logging.StreamHandler()
+        stream_h.setFormatter(fmt)
+        logger.addHandler(stream_h)
+
+        file_h = logging.FileHandler(output_dir / "logs" / "freebuf_crawler.log", encoding="utf-8")
+        file_h.setFormatter(fmt)
+        logger.addHandler(file_h)
+
+        return logger
+
+    def _sleep(self) -> None:
+        base = self.config.delay
+        jitter = random.uniform(0.0, self.config.jitter) if self.config.jitter > 0 else 0.0
+        total = base + jitter
+        if total > 0:
+            time.sleep(total)
+
+    def _bump(self, field: str, value: int = 1) -> None:
+        with self.stats_lock:
+            setattr(self.stats, field, getattr(self.stats, field) + value)
+
+    def _build_category_url(self, category: str, page: int) -> str:
+        category = category.strip("/")
+        if page <= 1:
+            return urljoin(self.config.base_url, category)
+        # FreeBuf SSR 对 ?page=N 大概率会回第一页，这里依然保留，方便未来站点改版直接生效。
+        return urljoin(self.config.base_url, f"{category}?page={page}")
+
+    def _extract_latest_id_hint(self) -> Optional[int]:
+        max_id = None
+        probe_categories = self.config.categories[: min(3, len(self.config.categories))]
+        for category in probe_categories:
+            url = self._build_category_url(category, 1)
+            html = self.http.fetch_text(url)
             if not html:
+                continue
+            ids = [int(x) for x in re.findall(r"/articles(?:/[\w-]+)?/(\d+)\.html", html)]
+            if ids:
+                cand = max(ids)
+                if max_id is None or cand > max_id:
+                    max_id = cand
+        return max_id
+
+    def _resolve_id_range(self) -> Optional[tuple[int, int]]:
+        if not self.config.scan_by_id:
+            return None
+
+        start = self.config.id_start
+        end = self.config.id_end
+
+        if start is None:
+            start = self._extract_latest_id_hint()
+            if start is None:
+                self.logger.warning("无法自动识别 id_start，跳过 ID 扫描")
+                return None
+
+        if end is None:
+            # 默认向下扫 3000 个 ID（可用命令行覆盖）
+            end = max(1, start - 3000)
+
+        if end > start:
+            start, end = end, start
+
+        return start, end
+
+    def _process_briefs(self, briefs: Iterable[ArticleBrief]) -> None:
+        if not self._executor:
+            raise RuntimeError("executor 未初始化")
+
+        todo: List[ArticleBrief] = []
+        for brief in briefs:
+            if self.config.max_articles_total and self.stats.saved >= self.config.max_articles_total:
                 break
-            
-            articles = self.parse_article_list(html)
-            if not articles:
-                self.logger.warning("未找到文章，可能到达最后一页")
-                break
-            
-            # 爬取每篇文章的详情
-            for article in articles:
-                if article['url'] in self.crawled_urls:
+
+            if not brief.url:
+                continue
+
+            if not self.config.force:
+                if self.state.is_crawled(brief.url) or self.store.has_url(brief.url):
+                    self._bump("skipped")
                     continue
-                    
-                self.crawled_urls.add(article['url'])
-                
-                # 爬取文章详情
-                detail_html = self.get_page(article['url'])
-                if detail_html:
-                    article_detail = self.parse_article_detail(detail_html, article['url'], category_dir)
-                    self.save_article(article, article_detail, category_dir)
-                    
-                    # 速率限制
-                    time.sleep(self.delay + random.uniform(0, 1))
-                
-                if self.article_count >= self.max_pages:
-                    break
-            
-            page += 1
-            time.sleep(self.delay)
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """获取爬虫统计信息"""
-        elapsed_time = datetime.now() - self.start_time
-        return {
-            'total_articles': self.stats['total_articles'],
-            'successful_downloads': self.stats['successful_downloads'],
-            'failed_downloads': self.stats['failed_downloads'],
-            'images_downloaded': self.stats['images_downloaded'],
-            'elapsed_time': str(elapsed_time),
-            'articles_per_minute': round(self.stats['total_articles'] / max(elapsed_time.total_seconds() / 60, 0.1), 2) if elapsed_time.total_seconds() > 0 else 0,
-            'success_rate': f"{round(self.stats['successful_downloads'] / max(self.stats['total_articles'], 1) * 100, 1)}%" if self.stats['total_articles'] > 0 else "0%"
+
+            todo.append(brief)
+
+        if self.config.max_articles_total is not None:
+            with self.stats_lock:
+                remaining = self.config.max_articles_total - self.stats.saved
+            if remaining <= 0:
+                return
+            todo = todo[:remaining]
+
+        if not todo:
+            return
+
+        self._bump("discovered", len(todo))
+        futures = {self._executor.submit(self._fetch_and_save_article, brief): brief for brief in todo}
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold cyan]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            transient=True,
+            disable=len(todo) < 8,
+        ) as progress:
+            task = progress.add_task("详情抓取中", total=len(todo))
+            for future in as_completed(futures):
+                brief = futures[future]
+                try:
+                    result = future.result()
+                    if result == "saved":
+                        self._bump("saved")
+                    elif result == "skipped":
+                        self._bump("skipped")
+                    else:
+                        self._bump("failed")
+                except Exception as exc:
+                    self.logger.warning("处理文章失败: %s, error=%s", brief.url, exc)
+                    self.state.mark_failed(brief.url, str(exc))
+                    self._bump("failed")
+                finally:
+                    self._bump("processed")
+                    progress.advance(task)
+
+    def _fetch_and_save_article(self, brief: ArticleBrief) -> str:
+        html = self.http.fetch_text(brief.url)
+        if not html:
+            self.state.mark_failed(brief.url, "fetch_detail_failed")
+            return "failed"
+
+        article = self.parser.parse_detail_page(html, brief, self._image_markdown)
+        if not article:
+            self.state.mark_failed(brief.url, "parse_detail_failed")
+            return "failed"
+
+        image_count = article.get("content", "").count("../images/")
+        article["image_count"] = image_count
+
+        saved = self.store.save_article(article, force=self.config.force)
+        if not saved:
+            self.state.mark_failed(brief.url, "save_failed")
+            return "failed"
+
+        self.state.mark_crawled(brief.url)
+        self.article_count = self.stats.saved + 1
+        self._sleep()
+        return "saved"
+
+    def _image_markdown(self, src: str, alt: str) -> str:
+        alt = (alt or "图片").strip() or "图片"
+        if not src:
+            return f"![{alt}]()"
+
+        if not self.config.download_images:
+            full = urljoin(self.config.base_url, src)
+            return f"![{alt}]({full})"
+
+        filename = self._download_image(src)
+        if not filename:
+            full = urljoin(self.config.base_url, src)
+            return f"![{alt}]({full})"
+
+        return f"![{alt}](../images/{filename})"
+
+    @staticmethod
+    def _normalize_image_url(url: str, base_url: str) -> str:
+        full = urljoin(base_url, url)
+        parsed = urlparse(full)
+
+        # FreeBuf 图片常见后缀: xxx.webp!small
+        path = parsed.path.split("!", 1)[0]
+
+        # 去掉追踪参数
+        keep_params: List[str] = []
+        for chunk in parsed.query.split("&"):
+            if not chunk:
+                continue
+            lower = chunk.lower()
+            if lower.startswith("utm_") or lower.startswith("from=") or lower.startswith("ref="):
+                continue
+            keep_params.append(chunk)
+
+        clean = parsed._replace(path=path, query="&".join(keep_params), fragment="")
+        return urlunparse(clean)
+
+    @staticmethod
+    def _guess_image_ext(url: str, content_type: str) -> str:
+        path = urlparse(url).path.lower()
+        for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".tiff", ".avif"]:
+            if path.endswith(ext):
+                return ".jpg" if ext == ".jpeg" else ext
+
+        ct = (content_type or "").lower()
+        mapping = {
+            "image/jpeg": ".jpg",
+            "image/png": ".png",
+            "image/gif": ".gif",
+            "image/webp": ".webp",
+            "image/svg+xml": ".svg",
+            "image/bmp": ".bmp",
+            "image/tiff": ".tiff",
+            "image/avif": ".avif",
         }
-    
-    def print_summary(self):
-        """打印爬取摘要"""
-        stats = self.get_statistics()
-        print("\n" + "="*50)
-        print("📊 FreeBuf爬虫运行摘要")
-        print("="*50)
-        print(f"📝 总文章数: {stats['total_articles']}")
-        print(f"✅ 成功下载: {stats['successful_downloads']}")
-        print(f"❌ 失败下载: {stats['failed_downloads']}")
-        print(f"🖼️  图片下载: {stats['images_downloaded']}")
-        print(f"⏱️  运行时间: {stats['elapsed_time']}")
-        print(f"📈 每分钟文章: {stats['articles_per_minute']}")
-        print(f"🎯 成功率: {stats['success_rate']}")
-        print("="*50)
+        return mapping.get(ct.split(";", 1)[0].strip(), ".jpg")
+
+    def _download_image(self, src: str) -> Optional[str]:
+        url = self._normalize_image_url(src, self.config.base_url)
+        with self._image_lock:
+            if url in self._image_cache:
+                return self._image_cache[url]
+
+        blob = self.http.fetch_binary(url)
+        if not blob:
+            return None
+
+        data, content_type = blob
+        if not data:
+            return None
+        if content_type and not content_type.lower().startswith("image/"):
+            return None
+
+        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+        ext = self._guess_image_ext(url, content_type)
+        filename = f"{url_hash}{ext}"
+        path = self.store.images_dir / filename
+
+        if not path.exists():
+            try:
+                path.write_bytes(data)
+                self._bump("images_downloaded")
+            except Exception:
+                return None
+
+        with self._image_lock:
+            self._image_cache[url] = filename
+        return filename
+
+    def _crawl_categories(self) -> None:
+        for category in self.config.categories:
+            if self.config.max_articles_total and self.stats.saved >= self.config.max_articles_total:
+                break
+
+            cat_path = category.strip("/")
+            cat_name = CATEGORY_LABELS.get(cat_path, cat_path)
+
+            start_page = self.state.next_page(cat_path) if self.config.resume else 1
+            self.logger.info("开始分类抓取: %s (%s), from page=%d", cat_name, cat_path, start_page)
+
+            previous_urls: Set[str] = set()
+            page = start_page
+            while page <= self.config.max_pages_per_category:
+                if self.config.max_articles_total and self.stats.saved >= self.config.max_articles_total:
+                    break
+
+                list_url = self._build_category_url(cat_path, page)
+                html = self.http.fetch_text(list_url)
+                if not html:
+                    self.logger.warning("列表页获取失败，停止分类: %s page=%d", cat_path, page)
+                    break
+
+                briefs = self.parser.parse_category_page(html, cat_path, cat_name)
+                if not briefs:
+                    self.logger.info("分类无更多文章，停止: %s page=%d", cat_path, page)
+                    break
+
+                current_urls = {b.url for b in briefs}
+                if page > start_page and current_urls and current_urls == previous_urls:
+                    self.logger.info("检测到重复分页结果，停止分类: %s page=%d", cat_path, page)
+                    break
+                previous_urls = current_urls
+
+                self.logger.info(
+                    "分类 %s page=%d 发现 %d 篇（待去重）",
+                    cat_name,
+                    page,
+                    len(briefs),
+                )
+                self._process_briefs(briefs)
+
+                page += 1
+                self.state.set_next_page(cat_path, page)
+                self.state.save()
+                self._sleep()
+
+            self._bump("categories_finished")
+
+    def _crawl_by_id_range(self) -> None:
+        id_range = self._resolve_id_range()
+        if not id_range:
+            return
+
+        start, end = id_range
+        self.logger.info("开始 ID 扫描: %d -> %d", start, end)
+
+        batch_size = max(20, self.config.id_batch_size)
+        current = start
+
+        while current >= end:
+            if self.config.max_articles_total and self.stats.saved >= self.config.max_articles_total:
+                break
+
+            batch_ids = list(range(current, max(end - 1, current - batch_size), -1))
+            briefs: List[ArticleBrief] = []
+            for aid in batch_ids:
+                url = urljoin(self.config.base_url, f"articles/{aid}.html")
+                briefs.append(
+                    ArticleBrief(
+                        url=url,
+                        article_id=aid,
+                        source="id_scan",
+                    )
+                )
+
+            self._bump("id_scan_requests", len(briefs))
+            self._process_briefs(briefs)
+
+            current = batch_ids[-1] - 1
+            self.state.set_last_scanned_id(current)
+            self.state.save()
+            self._sleep()
+
+    def crawl(self) -> None:
+        self.logger.info("启动 FreeBuf 爬虫（重构版）")
+        self.logger.info(
+            "配置: workers=%d, max_pages_per_category=%d, max_articles_total=%s, output=%s",
+            self.config.workers,
+            self.config.max_pages_per_category,
+            self.config.max_articles_total,
+            self.config.output_dir,
+        )
+
+        try:
+            with ThreadPoolExecutor(max_workers=self.config.workers) as executor:
+                self._executor = executor
+                self._crawl_categories()
+                self._crawl_by_id_range()
+        finally:
+            self.http.close()
+
+        self.stats.end_time = datetime.now().isoformat(timespec="seconds")
+        self.store.flush_indexes(self.stats)
+        self.state.save()
+
+        self.article_count = self.stats.saved
+        self.crawled_urls = set(self.state.data.get("crawled_urls", []))
+
+        self.logger.info("爬取结束: saved=%d, failed=%d", self.stats.saved, self.stats.failed)
+
+    def get_statistics(self) -> Dict[str, Any]:
+        return self.stats.as_dict()
+
+    def print_summary(self) -> None:
+        s = self.get_statistics()
+        print("\n" + "=" * 60)
+        print("FreeBuf Crawler Summary")
+        print("=" * 60)
+        print(f"开始时间: {s['start_time']}")
+        print(f"结束时间: {s['end_time']}")
+        print(f"运行秒数: {s['elapsed_seconds']}")
+        print(f"发现任务: {s['discovered']}")
+        print(f"已处理: {s['processed']}")
+        print(f"成功保存: {s['saved']}")
+        print(f"跳过去重: {s['skipped']}")
+        print(f"失败数量: {s['failed']}")
+        print(f"下载图片: {s['images_downloaded']}")
+        print(f"分类完成: {s['categories_finished']}")
+        print(f"ID扫描请求: {s['id_scan_requests']}")
+        print(f"吞吐(篇/分钟): {s['articles_per_minute']}")
+        print("=" * 60)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="FreeBuf 文章爬虫（并发+断点+离线索引）")
+
+    parser.add_argument("--base-url", default="https://www.freebuf.com/", help="基础 URL")
+    parser.add_argument("--output-dir", default="freebuf_data", help="输出目录")
+
+    parser.add_argument(
+        "--categories",
+        nargs="*",
+        default=None,
+        help="分类列表，例如: web ai-security network 或 articles/web",
+    )
+    parser.add_argument("--print-categories", action="store_true", help="打印内置分类并退出")
+
+    parser.add_argument("--delay", type=float, default=1.0, help="请求基础延迟（秒）")
+    parser.add_argument("--jitter", type=float, default=0.5, help="随机抖动（秒）")
+    parser.add_argument("--timeout", type=int, default=20, help="请求超时（秒）")
+    parser.add_argument("--retries", type=int, default=3, help="请求重试次数")
+    parser.add_argument("--workers", type=int, default=6, help="并发线程数")
+
+    parser.add_argument("--max-pages", type=int, default=50, help="每个分类最多抓取页数")
+    parser.add_argument("--max-total", type=int, default=None, help="总文章抓取上限")
+
+    parser.add_argument("--no-images", action="store_true", help="不下载图片")
+    parser.add_argument("--no-resume", action="store_true", help="关闭断点续爬")
+    parser.add_argument("--force", action="store_true", help="强制重抓已存在 URL")
+    parser.add_argument("--insecure", action="store_true", help="默认 verify=False")
+
+    parser.add_argument("--scan-by-id", action="store_true", help="开启 ID 扫描模式")
+    parser.add_argument("--id-start", type=int, default=None, help="ID 扫描起始值")
+    parser.add_argument("--id-end", type=int, default=None, help="ID 扫描结束值")
+    parser.add_argument("--id-batch-size", type=int, default=200, help="ID 扫描批大小")
+
+    return parser
+
+
+def _print_categories() -> None:
+    print("可用分类：")
+    for key in DEFAULT_CATEGORIES:
+        print(f"- {key:25s}  {CATEGORY_LABELS.get(key, key)}")
+
+
+def _build_config_from_args(args: argparse.Namespace) -> CrawlConfig:
+    categories = FreeBufCrawler._normalize_categories(args.categories)
+    return CrawlConfig(
+        base_url=args.base_url,
+        output_dir=Path(args.output_dir),
+        categories=categories,
+        delay=max(args.delay, 0.0),
+        jitter=max(args.jitter, 0.0),
+        timeout=max(args.timeout, 5),
+        retries=max(args.retries, 0),
+        workers=max(args.workers, 1),
+        max_pages_per_category=max(args.max_pages, 1),
+        max_articles_total=args.max_total,
+        download_images=not args.no_images,
+        resume=not args.no_resume,
+        force=args.force,
+        verify_ssl=not args.insecure,
+        scan_by_id=args.scan_by_id,
+        id_start=args.id_start,
+        id_end=args.id_end,
+        id_batch_size=max(args.id_batch_size, 20),
+    )
+
+
+def main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    if args.print_categories:
+        _print_categories()
+        return 0
+
+    config = _build_config_from_args(args)
+    crawler = FreeBufCrawler(config=config)
+
+    try:
+        crawler.crawl()
+        crawler.print_summary()
+        return 0
+    except KeyboardInterrupt:
+        print("\n用户中断，正在保存状态...")
+        crawler.state.save()
+        return 130
+
 
 if __name__ == "__main__":
-    try:
-        # 创建爬虫实例
-        crawler = FreeBufCrawler(delay=2, max_pages=100)
-        
-        # 开始爬取
-        crawler.crawl()
-        
-        # 打印统计摘要
-        crawler.print_summary()
-        
-    except KeyboardInterrupt:
-        print("\n⚠️  用户中断爬虫运行")
-    except Exception as e:
-        print(f"❌ 爬虫运行出错: {e}")
+    raise SystemExit(main())

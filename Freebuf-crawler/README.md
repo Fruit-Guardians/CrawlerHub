@@ -1,80 +1,157 @@
-# FreeBuf 网络安全文章爬虫
+# FreeBuf 网络安全文章爬虫（重构版）
 
->基于 claude code 开发
+面向离线比赛场景，重点做了：
+- 现代技术栈：`httpx(http2)` + `requests` + `curl_cffi` + `tenacity` + `selectolax` + `pydantic` + `orjson` + `rich`
+- 并发抓取（详情页多线程）
+- 断点续爬（`state.json`）
+- 增量去重（`manifest.json`）
+- 图片本地化（`freebuf_data/images`）
+- 离线检索索引（`index.sqlite` / `index.jsonl` / `index.csv` / `summary.json`）
+- 可选 ID 扫描模式（用于补历史文章）
 
-## 📁 支持的分类
+## 1. 安装依赖
 
-| 分类 | URL路径 | 中文说明 |
-|------|---------|----------|
-| 容器安全 | `articles/container` | Docker、K8s等容器安全 |
-| AI安全 | `articles/ai-security` | 人工智能安全 |
-| 开发安全 | `articles/development` | DevSecOps、安全开发 |
-| 终端安全 | `articles/endpoint` | 主机、终端安全 |
-| 数据安全 | `articles/database` | 数据库、数据保护 |
-| Web安全 | `articles/web` | Web应用安全 |
-| 网络安全 | `articles/network` | 网络攻防、协议安全 |
-| 企业安全 | `articles/es` | 企业级安全解决方案 |
-| 工控安全 | `ics-articles` | 工业控制系统安全 |
-| 移动安全 | `articles/mobile` | 移动应用安全 |
-| 系统安全 | `articles/system` | 操作系统安全 |
-| 其他安全 | `articles/others-articles` | 其他安全主题 |
+```bash
+pip install -r requirements.txt
+```
 
-## 🚀 快速开始
-我这里写了一个全量版本，你们可以根据需要自己改一下
+## 2. 快速开始
 
-```python
+### 2.1 直接跑（推荐）
+
+```bash
+python3 freebuf_crawler.py
+```
+
+默认行为：
+- 抓取全部内置分类
+- 每分类最多尝试 50 页（站点分页失效时会自动停）
+- 开启断点续爬
+- 下载图片并本地化
+
+### 2.2 使用模板脚本
+
+```bash
 python3 maxcrawler.py
 ```
 
-### 安装依赖
+`maxcrawler.py` 里已经给了常用参数，改起来更快。
+
+## 3. 常用命令
+
+### 3.1 只抓几个分类
 
 ```bash
-pip install requests beautifulsoup4
+python3 freebuf_crawler.py --categories web ai-security network --max-pages 20
 ```
 
-### 基本使用
+### 3.2 限制总文章数（赛前快速预热）
 
-```python
-from freebuf_crawler import FreeBufCrawler
-
-# 创建爬虫实例
-crawler = FreeBufCrawler(
-    delay=2,           # 请求间隔2秒
-    max_pages=50,      # 每个分类最多50页
-)
-
-# 开始爬取
-crawler.crawl()
+```bash
+python3 freebuf_crawler.py --max-total 300 --workers 8
 ```
 
-### 自定义分类
+### 3.3 关闭图片下载（加速）
 
-```python
-# 只爬取特定分类
-categories = ['articles/web', 'articles/ai-security']
-crawler = FreeBufCrawler(categories=categories)
-crawler.crawl()
+```bash
+python3 freebuf_crawler.py --no-images
 ```
 
-## 📂 输出结构
+### 3.4 不使用断点（全新跑）
 
+```bash
+python3 freebuf_crawler.py --no-resume
 ```
+
+### 3.5 强制重抓已存在文章
+
+```bash
+python3 freebuf_crawler.py --force
+```
+
+### 3.6 ID 扫描补历史（耗时模式）
+
+```bash
+python3 freebuf_crawler.py --scan-by-id --id-start 473900 --id-end 450000 --workers 10
+```
+
+说明：
+- `--scan-by-id` 会访问 `https://www.freebuf.com/articles/<id>.html`
+- 适合站点前端分页失效时补历史内容
+- 建议配合断点续爬长时间运行
+
+## 4. 输出结构
+
+```text
 freebuf_data/
-├── images/              # 所有图片文件
-├── 容器安全/            # 分类目录
-│   ├── 文章标题1.md
-│   └── 文章标题2.md
-├── Web安全/
-│   ├── 文章标题3.md
-│   └── 文章标题4.md
-└── logs/                # 日志文件
+├── ai-security/...
+├── web/...
+├── network/...
+├── images/
+├── logs/
+│   └── freebuf_crawler.log
+├── state.json
+├── manifest.json
+├── index.sqlite
+├── index.jsonl
+├── index.csv
+└── summary.json
 ```
 
-## 🛠️ 配置参数
+索引文件用途：
+- `manifest.json`：URL -> 本地文件映射（去重核心）
+- `index.sqlite`：FTS5 全文检索（默认检索后端，速度最快）
+- `index.jsonl`：离线检索最方便
+- `index.csv`：Excel / 表格工具快速查看
+- `summary.json`：统计摘要
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `base_url` | str | `"https://www.freebuf.com/"` | FreeBuf基础URL |
-| `delay` | int | `2` | 请求间隔时间(秒) |
-| `max_pages` | int | `50` | 每个分类最大页数 |
-| `categories` | list | `None` | 自定义分类列表 |
+## 5. 离线检索
+
+```bash
+python3 search_index.py --keyword xss
+python3 search_index.py --keyword 漏洞 --category web --limit 20
+python3 search_index.py --keyword "sql 注入" --backend sqlite
+```
+
+## 6. 分类列表
+
+```bash
+python3 freebuf_crawler.py --print-categories
+```
+
+内置分类（slug）：
+- `articles/container`
+- `articles/ai-security`
+- `articles/development`
+- `articles/endpoint`
+- `articles/database`
+- `articles/web`
+- `articles/network`
+- `articles/es`
+- `ics-articles`
+- `articles/mobile`
+- `articles/system`
+- `articles/others-articles`
+
+## 7. 参数总览
+
+```bash
+python3 freebuf_crawler.py --help
+```
+
+重点参数：
+- `--categories`
+- `--max-pages`
+- `--max-total`
+- `--workers`
+- `--scan-by-id`
+- `--id-start --id-end`
+- `--no-resume`
+- `--force`
+
+## 8. 说明
+
+- FreeBuf 当前前端是 Nuxt，分页经常走前端逻辑，纯拼 URL 翻页并不稳定。
+- 本项目默认采用“分类抓最新 + 增量去重 + 可选 ID 扫描补历史”的组合策略。
+- 传输层采用三级回退：`httpx(http2)` -> `requests` -> `curl_cffi`，用于提高复杂网络环境可用性。
+- 建议赛前多跑几次增量任务，数据集会持续变厚。
