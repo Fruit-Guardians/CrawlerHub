@@ -1,0 +1,35 @@
+{
+  "name": "kanxue-crawler",
+  "version": "1.0.0",
+  "description": "Production-grade Kanxue crawler with Playwright, Crawlee, SQLite and Markdown export.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "bootstrap": "npx playwright install chromium",
+    "start": "node src/index.js run",
+    "bootstrap-session": "node src/index.js bootstrap-session",
+    "bootstrap-session:chrome": "set KANXUE_BROWSER_CHANNEL=chrome&& node src/index.js bootstrap-session",
+    "bootstrap-session:edge": "set KANXUE_BROWSER_CHANNEL=msedge&& node src/index.js bootstrap-session",
+    "discover": "node src/index.js discover",
+    "crawl": "node src/index.js crawl",
+    "refresh:raw": "node src/index.js refresh-raw",
+    "export:markdown": "node src/index.js export-markdown",
+    "search": "node src/index.js search",
+    "stats": "node src/index.js stats",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "better-sqlite3": "^11.8.1",
+    "cheerio": "^1.1.2",
+    "crawlee": "^3.15.1",
+    "jsdom": "^26.1.0",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.1.1",
+    "playwright": "^1.52.0",
+    "turndown": "^7.2.0"
+  }
+}
